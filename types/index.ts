@@ -12,6 +12,8 @@ export interface Product {
   rating: number;
   pros: string[];
   cons: string[];
+  reviewSnippet: string;
+  inventory: number;
   priceHistory: PriceHistoryPoint[];
 }
 
@@ -23,6 +25,10 @@ export interface PriceHistoryPoint {
 
 export interface PriceAlert {
   productId: string;
+  productName: string;
+  retailer: string;
+  currentPrice: number;
   threshold: number;
   email: string;
+  createdAt: string;
 }

@@ -14,14 +14,12 @@ export default function ContactPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
-    // In production, this would send to priceflare@gmail.com
-    // For now, we'll simulate success
-    console.log("Contact form submitted:", {
-      ...formData,
-      to: "priceflare@gmail.com",
-      timestamp: new Date().toISOString(),
-    });
-    
+    // Open mailto: link as fallback, then show success
+    const mailto = `mailto:${"priceflare"}@${"gmail.com"}?subject=${encodeURIComponent(
+      formData.subject
+    )}&body=${encodeURIComponent(formData.message)}`;
+    window.open(mailto, "_blank");
+
     setSubmitted(true);
     setTimeout(() => {
       setFormData({ subject: "", message: "" });

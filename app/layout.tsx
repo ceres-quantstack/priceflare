@@ -1,22 +1,28 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import Navigation from "@/components/Navigation";
+import Footer from "@/components/Footer";
 
 export const metadata: Metadata = {
   title: "PriceFlare 🔥 - Track Product Prices Across Top Retailers",
-  description: "Find the best deals and track price history across Amazon, Walmart, Target, Newegg, eBay, and Best Buy. Get email alerts when prices drop and never overpay again.",
-  keywords: "price tracking, price comparison, Amazon deals, Walmart prices, Target sales, product price history, price alerts, best deals",
-  authors: [{ name: "PriceFlare Team" }],
+  description:
+    "Find the best deals and track price history across Amazon, Walmart, Target, Newegg, eBay, and Best Buy. Get email alerts when prices drop and never overpay again.",
+  keywords:
+    "price tracking, price comparison, Amazon deals, Walmart prices, Target sales, product price history, price alerts, best deals, lowest price finder",
+  authors: [{ name: "PriceFlare" }],
   openGraph: {
     title: "PriceFlare 🔥 - Smart Price Tracking",
-    description: "Track prices across major retailers and get alerted when deals happen",
+    description:
+      "Track prices across major retailers and get alerted when deals happen",
     type: "website",
     locale: "en_US",
+    siteName: "PriceFlare",
   },
   twitter: {
     card: "summary_large_image",
     title: "PriceFlare 🔥 - Smart Price Tracking",
-    description: "Track prices across major retailers and get alerted when deals happen",
+    description:
+      "Track prices across major retailers and get alerted when deals happen",
   },
   robots: {
     index: true,
@@ -36,13 +42,16 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
       </head>
-      <body className="antialiased">
+      <body className="antialiased flex flex-col min-h-screen">
         <Navigation />
-        <main className="min-h-screen">
-          {children}
-        </main>
+        <main className="flex-1">{children}</main>
+        <Footer />
       </body>
     </html>
   );

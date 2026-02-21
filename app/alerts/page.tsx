@@ -35,9 +35,17 @@ export default function AlertsPage() {
     localStorage.setItem("priceflare_alerts", JSON.stringify(updatedAlerts));
   };
 
+  const [emailSaved, setEmailSaved] = useState(false);
+
   const updateEmail = () => {
     localStorage.setItem("priceflare_email", email);
-    alert("Email preferences saved!");
+    setEmailSaved(true);
+    setTimeout(() => setEmailSaved(false), 2000);
+  };
+
+  const clearAllAlerts = () => {
+    setAlerts([]);
+    localStorage.removeItem("priceflare_alerts");
   };
 
   return (
@@ -73,9 +81,9 @@ export default function AlertsPage() {
               />
               <button
                 onClick={updateEmail}
-                className="bg-gradient-to-r from-sky-blue to-dark-blue text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
+                className="bg-gradient-to-r from-sky-blue to-dark-blue text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all duration-200"
               >
-                Save
+                {emailSaved ? "✓ Saved" : "Save"}
               </button>
             </div>
           </div>
@@ -94,6 +102,15 @@ export default function AlertsPage() {
         <div className="flex items-center gap-2 mb-6">
           <Bell className="w-6 h-6 text-sky-blue" />
           <h2 className="text-2xl font-bold text-dark-blue">Active Price Alerts</h2>
+          {alerts.length > 0 && (
+            <button
+              onClick={clearAllAlerts}
+              className="text-red-600 hover:text-red-700 font-medium flex items-center gap-1 transition-colors duration-200 text-sm"
+            >
+              <Trash2 className="w-4 h-4" />
+              Clear All
+            </button>
+          )}
         </div>
 
         {alerts.length > 0 ? (
