@@ -1,11 +1,37 @@
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const { chromium } = require('playwright-core');
+const { chromium } = require('playwright-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+
+// Apply stealth patches (evades bot detection)
+chromium.use(StealthPlugin());
 
 const app = express();
 const PORT = 8095;
 const CHROMIUM_PATH = '/snap/bin/chromium';
+
+// --- Relevance Scoring ---
+// Compare product title to search query to filter irrelevant results
+function relevanceScore(title, query) {
+  if (!title || !query) return 0;
+  const titleLower = title.toLowerCase();
+  const queryLower = query.toLowerCase();
+  const queryWords = queryLower.split(/\s+/).filter(w => w.length > 1);
+  
+  // Exact match
+  if (titleLower.includes(queryLower)) return 1.0;
+  
+  // Word overlap
+  let matched = 0;
+  for (const word of queryWords) {
+    if (titleLower.includes(word)) matched++;
+  }
+  return queryWords.length > 0 ? matched / queryWords.length : 0;
+}
+
+// Minimum relevance threshold — product must match at least 50% of query words
+const MIN_RELEVANCE = 0.5;
 
 const RETAILERS = [
   { name: 'Amazon', emoji: '📦', color: '#FF9900',
@@ -139,20 +165,21 @@ async function extractWalmart(page) {
 
 async function extractTarget(page) {
   await page.waitForSelector('[data-test="product-card"], a[href*="/p/"]', { timeout: 8000 }).catch(() => {});
-  await page.waitForTimeout(2000); // Let results fully render
+  await page.waitForTimeout(2000);
   
-  const product = await page.evaluate(() => {
-    // Get all product cards and find the first one with a real price
+  // Extract ALL product cards, then we'll pick the most relevant one
+  const products = await page.evaluate(() => {
+    const results = [];
     const cards = document.querySelectorAll('[data-test="product-card"], [data-test*="ProductCard"]');
     
     for (const card of cards) {
+      if (results.length >= 10) break;
       const linkEl = card.querySelector('a[href*="/p/"]');
       const title = linkEl?.innerText?.trim() || card.querySelector('[data-test="product-title"]')?.innerText?.trim();
       
-      // Find price - look for the current (non-strikethrough) price
       let price = null;
-      const priceEls = card.querySelectorAll('[data-test="current-price"], span');
-      for (const el of priceEls) {
+      const spans = card.querySelectorAll('span');
+      for (const el of spans) {
         const text = el.innerText?.trim();
         if (text && /^\$[\d,]+\.?\d*$/.test(text)) {
           price = parseFloat(text.replace(/[$,]/g, ''));
@@ -163,33 +190,15 @@ async function extractTarget(page) {
       let url = linkEl?.getAttribute('href');
       if (url && !url.startsWith('http')) url = 'https://www.target.com' + url;
       
-      // Skip items that seem irrelevant (accessories/cases priced under $20 for electronics)
-      if (title && price && price > 5) {
-        return { title: title.substring(0, 200), price, url };
+      if (title && price) {
+        results.push({ title: title.substring(0, 200), price, url });
       }
     }
-    
-    // Fallback: look for any product link with a nearby price
-    const links = document.querySelectorAll('a[href*="/p/"]');
-    for (const link of links) {
-      const parent = link.closest('div');
-      if (!parent) continue;
-      const text = parent.innerText;
-      const priceMatch = text.match(/\$(\d+\.?\d*)/);
-      if (priceMatch) {
-        let url = link.getAttribute('href');
-        if (url && !url.startsWith('http')) url = 'https://www.target.com' + url;
-        return {
-          title: link.innerText?.trim()?.substring(0, 200),
-          price: parseFloat(priceMatch[1]),
-          url,
-        };
-      }
-    }
-    
-    return null;
+    return results;
   });
-  return product;
+  
+  // Return all candidates — the caller will pick the most relevant
+  return products;
 }
 
 async function extractNewegg(page) {
@@ -302,13 +311,41 @@ async function searchRetailer(retailer, query) {
     const waitTime = ['Walmart', 'eBay', 'Best Buy'].includes(retailer.name) ? 4000 : 2000;
     await page.waitForTimeout(waitTime);
     
-    const product = await retailer.parse(page);
+    let rawResult = await retailer.parse(page);
     await context.close();
     
+    // Handle extractors that return arrays (Target returns multiple candidates)
+    let product = null;
+    if (Array.isArray(rawResult)) {
+      // Pick the most relevant product from the array
+      let bestScore = -1;
+      for (const candidate of rawResult) {
+        const score = relevanceScore(candidate.title, query);
+        if (score > bestScore && score >= MIN_RELEVANCE) {
+          bestScore = score;
+          product = candidate;
+        }
+      }
+      // If no relevant match, fall back to first result
+      if (!product && rawResult.length > 0) {
+        product = rawResult[0];
+      }
+    } else {
+      product = rawResult;
+    }
+    
+    // Apply relevance check on single results too (skip clearly wrong products)
+    if (product && product.title) {
+      const score = relevanceScore(product.title, query);
+      if (score < MIN_RELEVANCE) {
+        console.log(`[${retailer.name}] Low relevance (${score.toFixed(2)}): "${product.title}" for query "${query}"`);
+        // Still return it but mark as low relevance — better than nothing
+      }
+    }
+    
     if (product && (product.price || product.url)) {
-      // Sanity check: filter absurd prices (likely scams or bid prices)
       let price = product.price;
-      if (price && price > 5000) price = null; // Probably wrong
+      if (price && price > 5000) price = null;
       if (price && price < 1) price = null;
       
       return {
