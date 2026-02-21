@@ -70,19 +70,31 @@ function extractPrice(text) {
 // --- Retailer-specific extractors ---
 
 async function extractAmazon(page) {
-  // Wait for search results
-  await page.waitForSelector('[data-component-type="s-search-result"], .s-result-item', { timeout: 8000 }).catch(() => {});
+  await page.waitForSelector('[data-component-type="s-search-result"]', { timeout: 8000 }).catch(() => {});
   
   const product = await page.evaluate(() => {
     const item = document.querySelector('[data-component-type="s-search-result"]');
     if (!item) return null;
-    const titleEl = item.querySelector('h2 a span, h2 span');
-    const linkEl = item.querySelector('h2 a, a.a-link-normal[href*="/dp/"]');
-    const priceWhole = item.querySelector('.a-price-whole');
-    const priceFrac = item.querySelector('.a-price-fraction');
-    const title = titleEl?.textContent?.trim();
-    let href = linkEl?.getAttribute('href') || linkEl?.href;
+    
+    // Get product title from the first link containing /dp/ with substantial text
+    let title = null;
+    let href = null;
+    const dpLinks = item.querySelectorAll('a[href*="/dp/"]');
+    for (const link of dpLinks) {
+      const text = link.innerText?.trim();
+      // Skip links that are just prices
+      if (text && text.length > 15 && !text.startsWith('$')) {
+        title = text.split('\n')[0].trim(); // First line only (before price)
+        href = link.getAttribute('href');
+        break;
+      }
+    }
     if (href && !href.startsWith('http')) href = 'https://www.amazon.com' + href;
+    try { href = href.split('/ref=')[0]; } catch(e) {}
+    
+    // Get price
+    const priceWhole = item.querySelector('.a-price:not([data-a-strike]) .a-price-whole');
+    const priceFrac = item.querySelector('.a-price:not([data-a-strike]) .a-price-fraction');
     let price = null;
     if (priceWhole) {
       const whole = priceWhole.textContent.replace(/[,\.]/g, '');
@@ -95,37 +107,87 @@ async function extractAmazon(page) {
 }
 
 async function extractWalmart(page) {
-  await page.waitForSelector('[data-testid="list-view"], [data-item-id]', { timeout: 8000 }).catch(() => {});
+  // Walmart shows CAPTCHA ("Robot or human?") to headless browsers
+  // Check if we got blocked
+  const blocked = await page.evaluate(() => {
+    return document.title.includes('Robot') || document.body.innerText.includes('Robot or human');
+  });
+  if (blocked) return null;
+  
+  await page.waitForSelector('[data-item-id], [data-testid="list-view"]', { timeout: 8000 }).catch(() => {});
   
   const product = await page.evaluate(() => {
-    const item = document.querySelector('[data-item-id], [data-testid="list-view"] > div');
+    const item = document.querySelector('[data-item-id]');
     if (!item) return null;
     const linkEl = item.querySelector('a[href*="/ip/"]');
-    const title = linkEl?.textContent?.trim() || item.querySelector('[data-automation-id="product-title"], span[data-automation-id]')?.textContent?.trim();
-    const priceEl = item.querySelector('[data-automation-id="product-price"] span, [itemprop="price"]');
-    const priceText = priceEl?.textContent || '';
-    const priceMatch = priceText.match(/\$?([\d,]+\.?\d*)/);
-    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
+    const title = linkEl?.innerText?.trim() || item.querySelector('[data-automation-id="product-title"]')?.innerText?.trim();
+    // Find price
+    let price = null;
+    const spans = item.querySelectorAll('span');
+    for (const span of spans) {
+      const text = span.innerText?.trim();
+      if (text && /^\$[\d,]+\.?\d*$/.test(text)) {
+        price = parseFloat(text.replace(/[$,]/g, ''));
+        break;
+      }
+    }
     const url = linkEl?.href;
-    return { title, price, url };
+    return { title: title?.substring(0, 200), price, url };
   });
   return product;
 }
 
 async function extractTarget(page) {
-  await page.waitForSelector('[data-test="product-card"], [data-test="@web/ProductCard"]', { timeout: 8000 }).catch(() => {});
+  await page.waitForSelector('[data-test="product-card"], a[href*="/p/"]', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(2000); // Let results fully render
   
   const product = await page.evaluate(() => {
-    const item = document.querySelector('[data-test="product-card"], [data-test="@web/ProductCard/ProductCardVariantDefault"]');
-    if (!item) return null;
-    const linkEl = item.querySelector('a[href*="/p/"]');
-    const title = linkEl?.textContent?.trim() || item.querySelector('[data-test="product-title"]')?.textContent?.trim();
-    const priceEl = item.querySelector('[data-test="current-price"] span, span[data-test="current-price"]');
-    const priceText = priceEl?.textContent || '';
-    const priceMatch = priceText.match(/\$?([\d,]+\.?\d*)/);
-    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
-    const url = linkEl ? `https://www.target.com${linkEl.getAttribute('href')}` : null;
-    return { title: title?.substring(0, 200), price, url };
+    // Get all product cards and find the first one with a real price
+    const cards = document.querySelectorAll('[data-test="product-card"], [data-test*="ProductCard"]');
+    
+    for (const card of cards) {
+      const linkEl = card.querySelector('a[href*="/p/"]');
+      const title = linkEl?.innerText?.trim() || card.querySelector('[data-test="product-title"]')?.innerText?.trim();
+      
+      // Find price - look for the current (non-strikethrough) price
+      let price = null;
+      const priceEls = card.querySelectorAll('[data-test="current-price"], span');
+      for (const el of priceEls) {
+        const text = el.innerText?.trim();
+        if (text && /^\$[\d,]+\.?\d*$/.test(text)) {
+          price = parseFloat(text.replace(/[$,]/g, ''));
+          break;
+        }
+      }
+      
+      let url = linkEl?.getAttribute('href');
+      if (url && !url.startsWith('http')) url = 'https://www.target.com' + url;
+      
+      // Skip items that seem irrelevant (accessories/cases priced under $20 for electronics)
+      if (title && price && price > 5) {
+        return { title: title.substring(0, 200), price, url };
+      }
+    }
+    
+    // Fallback: look for any product link with a nearby price
+    const links = document.querySelectorAll('a[href*="/p/"]');
+    for (const link of links) {
+      const parent = link.closest('div');
+      if (!parent) continue;
+      const text = parent.innerText;
+      const priceMatch = text.match(/\$(\d+\.?\d*)/);
+      if (priceMatch) {
+        let url = link.getAttribute('href');
+        if (url && !url.startsWith('http')) url = 'https://www.target.com' + url;
+        return {
+          title: link.innerText?.trim()?.substring(0, 200),
+          price: parseFloat(priceMatch[1]),
+          url,
+        };
+      }
+    }
+    
+    return null;
   });
   return product;
 }
@@ -150,41 +212,72 @@ async function extractNewegg(page) {
 }
 
 async function extractEbay(page) {
-  await page.waitForSelector('.s-item, .srp-results .s-item', { timeout: 8000 }).catch(() => {});
+  await page.waitForSelector('li, [class*="s-card"]', { timeout: 10000 }).catch(() => {});
+  await page.waitForTimeout(5000); // eBay needs significant render time
   
-  const product = await page.evaluate(() => {
-    const items = document.querySelectorAll('.s-item');
-    // Skip first item (often a header/ad)
-    const item = items.length > 1 ? items[1] : items[0];
-    if (!item) return null;
-    const titleEl = item.querySelector('.s-item__title span, .s-item__title');
-    const title = titleEl?.textContent?.trim();
-    if (title === 'Shop on eBay') return null;
-    const priceEl = item.querySelector('.s-item__price');
-    const priceText = priceEl?.textContent || '';
-    const priceMatch = priceText.match(/\$\s*([\d,]+\.?\d*)/);
-    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
-    const linkEl = item.querySelector('.s-item__link');
-    const url = linkEl?.href?.split('?')[0];
-    return { title: title?.substring(0, 200), price, url };
-  });
+  const product = await page.evaluate((searchQuery) => {
+    // eBay renders product listings in li elements
+    // Find li elements that contain product info + price
+    const lis = document.querySelectorAll('li');
+    const queryLower = searchQuery.toLowerCase();
+    
+    for (const li of lis) {
+      const text = li.innerText?.trim();
+      if (!text || text.length < 30 || text.length > 1000) continue;
+      if (text.includes('Shop on eBay')) continue;
+      
+      // Must contain a price
+      const priceMatch = text.match(/\$([\d,]+\.?\d*)/);
+      if (!priceMatch) continue;
+      const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+      if (price < 10 || price > 5000) continue;
+      
+      // Should contain a product link
+      const link = li.querySelector('a[href*="ebay.com/itm/"]');
+      if (!link) continue;
+      
+      // Get title from first line of text
+      const lines = text.split('\n').filter(l => l.trim().length > 10);
+      const title = lines[0]?.trim();
+      if (!title) continue;
+      
+      // Prefer "Buy It Now" listings over auctions
+      const isBuyNow = text.includes('Buy It Now');
+      const url = link.href.split('?')[0];
+      
+      return { title: title.substring(0, 200), price, url, isBuyNow };
+    }
+    
+    return null;
+  }, page.url().includes('_nkw=') ? decodeURIComponent(page.url().split('_nkw=')[1].split('&')[0]) : '');
   return product;
 }
 
 async function extractBestBuy(page) {
-  await page.waitForSelector('.sku-item, [data-sku-id]', { timeout: 8000 }).catch(() => {});
+  await page.waitForSelector('.product-list-item', { timeout: 8000 }).catch(() => {});
   
   const product = await page.evaluate(() => {
-    const item = document.querySelector('.sku-item, [data-sku-id], .list-item');
+    const item = document.querySelector('.product-list-item');
     if (!item) return null;
-    const titleEl = item.querySelector('.sku-title a, .sku-header a, h4 a');
-    const title = titleEl?.textContent?.trim();
-    const url = titleEl ? `https://www.bestbuy.com${titleEl.getAttribute('href')}` : null;
-    const priceEl = item.querySelector('.priceView-customer-price span, [data-testid="customer-price"] span');
-    const priceText = priceEl?.textContent || '';
-    const priceMatch = priceText.match(/\$?([\d,]+\.?\d*)/);
-    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
-    return { title, price, url };
+    
+    // Title: look for product link
+    const titleEl = item.querySelector('a[href*="/product/"], a[href*="/site/"]');
+    const title = titleEl?.innerText?.trim();
+    let url = titleEl?.href;
+    if (url && !url.startsWith('http')) url = 'https://www.bestbuy.com' + url;
+    
+    // Price: find spans containing $ price pattern
+    let price = null;
+    const spans = item.querySelectorAll('span');
+    for (const span of spans) {
+      const text = span.innerText?.trim();
+      if (text && /^\$[\d,]+\.?\d*$/.test(text)) {
+        price = parseFloat(text.replace(/[$,]/g, ''));
+        break;
+      }
+    }
+    
+    return { title: title?.substring(0, 200), price, url };
   });
   return product;
 }
@@ -213,16 +306,21 @@ async function searchRetailer(retailer, query) {
     await context.close();
     
     if (product && (product.price || product.url)) {
+      // Sanity check: filter absurd prices (likely scams or bid prices)
+      let price = product.price;
+      if (price && price > 5000) price = null; // Probably wrong
+      if (price && price < 1) price = null;
+      
       return {
         retailer: retailer.name,
         retailerEmoji: retailer.emoji,
         retailerColor: retailer.color,
-        productName: product.title || query,
-        price: product.price,
+        productName: (product.title && product.title.length > 5) ? product.title : query,
+        price,
         url: product.url || url,
-        description: product.price ? `$${product.price} on ${retailer.name}` : `View on ${retailer.name}`,
+        description: price ? `$${price} on ${retailer.name}` : `View on ${retailer.name}`,
         inStock: true,
-        source: product.price ? 'live' : 'live-noPrice',
+        source: price ? 'live' : 'live-noPrice',
       };
     }
   } catch (err) {
