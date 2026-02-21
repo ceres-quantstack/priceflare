@@ -1,264 +1,311 @@
 const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
+const { chromium } = require('playwright-core');
 
 const app = express();
 const PORT = 8095;
+const CHROMIUM_PATH = '/snap/bin/chromium';
 
-// Retailer configuration
 const RETAILERS = [
-  {
-    name: 'Amazon',
-    emoji: '📦',
-    color: '#FF9900',
+  { name: 'Amazon', emoji: '📦', color: '#FF9900',
     searchUrl: (q) => `https://www.amazon.com/s?k=${encodeURIComponent(q)}`,
-    ddgQuery: (q) => `site:amazon.com "${q}" price`
-  },
-  {
-    name: 'Walmart',
-    emoji: '🏪',
-    color: '#0071CE',
+    parse: ($page) => extractAmazon($page) },
+  { name: 'Walmart', emoji: '🏪', color: '#0071CE',
     searchUrl: (q) => `https://www.walmart.com/search?q=${encodeURIComponent(q)}`,
-    ddgQuery: (q) => `site:walmart.com "${q}" price`
-  },
-  {
-    name: 'Target',
-    emoji: '🎯',
-    color: '#CC0000',
+    parse: ($page) => extractWalmart($page) },
+  { name: 'Target', emoji: '🎯', color: '#CC0000',
     searchUrl: (q) => `https://www.target.com/s?searchTerm=${encodeURIComponent(q)}`,
-    ddgQuery: (q) => `site:target.com "${q}" price`
-  },
-  {
-    name: 'Newegg',
-    emoji: '🥚',
-    color: '#FF6600',
+    parse: ($page) => extractTarget($page) },
+  { name: 'Newegg', emoji: '🥚', color: '#FF6600',
     searchUrl: (q) => `https://www.newegg.com/p/pl?d=${encodeURIComponent(q)}`,
-    ddgQuery: (q) => `site:newegg.com "${q}" price`
-  },
-  {
-    name: 'eBay',
-    emoji: '🔨',
-    color: '#E53238',
+    parse: ($page) => extractNewegg($page) },
+  { name: 'eBay', emoji: '🛒', color: '#E53238',
     searchUrl: (q) => `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`,
-    ddgQuery: (q) => `site:ebay.com "${q}" price`
-  },
-  {
-    name: 'Best Buy',
-    emoji: '💙',
-    color: '#0046BE',
+    parse: ($page) => extractEbay($page) },
+  { name: 'Best Buy', emoji: '⚡', color: '#0046BE',
     searchUrl: (q) => `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(q)}`,
-    ddgQuery: (q) => `site:bestbuy.com "${q}" price`
-  }
+    parse: ($page) => extractBestBuy($page) },
 ];
 
-// CORS configuration
 app.use(cors({
   origin: ['http://192.168.1.100:8094', 'http://localhost:3000', 'http://localhost:8094'],
   credentials: true
 }));
 
-// Rate limiting: 10 requests per minute per IP
-const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 10,
-  message: { error: 'Too many requests, please try again later.' }
-});
-
+const limiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: 'Rate limit exceeded' } });
 app.use('/api', limiter);
 app.use(express.json());
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
-});
+app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
-// Extract price from text
-function extractPrice(text) {
-  if (!text) return null;
-  
-  // Look for patterns like $999.99, $1,299.00, etc.
-  const priceMatch = text.match(/\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/);
-  if (priceMatch) {
-    return parseFloat(priceMatch[1].replace(/,/g, ''));
+// Shared browser instance (reuse across requests)
+let browser = null;
+async function getBrowser() {
+  if (!browser || !browser.isConnected()) {
+    console.log('Launching browser...');
+    browser = await chromium.launch({
+      executablePath: CHROMIUM_PATH,
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-first-run',
+      ]
+    });
+    console.log('Browser launched');
   }
-  
-  return null;
+  return browser;
 }
 
-// Search a single retailer using DuckDuckGo
-async function searchRetailer(retailer, query, timeout = 8000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+// Extract price from text  
+function extractPrice(text) {
+  if (!text) return null;
+  const m = text.match(/\$\s*([\d,]+\.?\d*)/);
+  return m ? parseFloat(m[1].replace(/,/g, '')) : null;
+}
+
+// --- Retailer-specific extractors ---
+
+async function extractAmazon(page) {
+  // Wait for search results
+  await page.waitForSelector('[data-component-type="s-search-result"], .s-result-item', { timeout: 8000 }).catch(() => {});
   
+  const product = await page.evaluate(() => {
+    const item = document.querySelector('[data-component-type="s-search-result"]');
+    if (!item) return null;
+    const titleEl = item.querySelector('h2 a span, h2 span');
+    const linkEl = item.querySelector('h2 a, a.a-link-normal[href*="/dp/"]');
+    const priceWhole = item.querySelector('.a-price-whole');
+    const priceFrac = item.querySelector('.a-price-fraction');
+    const title = titleEl?.textContent?.trim();
+    let href = linkEl?.getAttribute('href') || linkEl?.href;
+    if (href && !href.startsWith('http')) href = 'https://www.amazon.com' + href;
+    let price = null;
+    if (priceWhole) {
+      const whole = priceWhole.textContent.replace(/[,\.]/g, '');
+      const frac = priceFrac?.textContent || '00';
+      price = parseFloat(`${whole}.${frac}`);
+    }
+    return { title, price, url: href };
+  });
+  return product;
+}
+
+async function extractWalmart(page) {
+  await page.waitForSelector('[data-testid="list-view"], [data-item-id]', { timeout: 8000 }).catch(() => {});
+  
+  const product = await page.evaluate(() => {
+    const item = document.querySelector('[data-item-id], [data-testid="list-view"] > div');
+    if (!item) return null;
+    const linkEl = item.querySelector('a[href*="/ip/"]');
+    const title = linkEl?.textContent?.trim() || item.querySelector('[data-automation-id="product-title"], span[data-automation-id]')?.textContent?.trim();
+    const priceEl = item.querySelector('[data-automation-id="product-price"] span, [itemprop="price"]');
+    const priceText = priceEl?.textContent || '';
+    const priceMatch = priceText.match(/\$?([\d,]+\.?\d*)/);
+    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
+    const url = linkEl?.href;
+    return { title, price, url };
+  });
+  return product;
+}
+
+async function extractTarget(page) {
+  await page.waitForSelector('[data-test="product-card"], [data-test="@web/ProductCard"]', { timeout: 8000 }).catch(() => {});
+  
+  const product = await page.evaluate(() => {
+    const item = document.querySelector('[data-test="product-card"], [data-test="@web/ProductCard/ProductCardVariantDefault"]');
+    if (!item) return null;
+    const linkEl = item.querySelector('a[href*="/p/"]');
+    const title = linkEl?.textContent?.trim() || item.querySelector('[data-test="product-title"]')?.textContent?.trim();
+    const priceEl = item.querySelector('[data-test="current-price"] span, span[data-test="current-price"]');
+    const priceText = priceEl?.textContent || '';
+    const priceMatch = priceText.match(/\$?([\d,]+\.?\d*)/);
+    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
+    const url = linkEl ? `https://www.target.com${linkEl.getAttribute('href')}` : null;
+    return { title: title?.substring(0, 200), price, url };
+  });
+  return product;
+}
+
+async function extractNewegg(page) {
+  await page.waitForSelector('.item-cell, .item-container', { timeout: 8000 }).catch(() => {});
+  
+  const product = await page.evaluate(() => {
+    const item = document.querySelector('.item-cell, .item-container');
+    if (!item) return null;
+    const titleEl = item.querySelector('.item-title, a.item-title');
+    const title = titleEl?.textContent?.trim();
+    const url = titleEl?.href;
+    const priceEl = item.querySelector('.price-current');
+    const priceText = priceEl?.textContent || '';
+    const priceMatch = priceText.match(/([\d,]+)/);
+    const priceSup = priceEl?.querySelector('sup')?.textContent || '';
+    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '') + (priceSup ? `.${priceSup}` : '')) : null;
+    return { title, price, url };
+  });
+  return product;
+}
+
+async function extractEbay(page) {
+  await page.waitForSelector('.s-item, .srp-results .s-item', { timeout: 8000 }).catch(() => {});
+  
+  const product = await page.evaluate(() => {
+    const items = document.querySelectorAll('.s-item');
+    // Skip first item (often a header/ad)
+    const item = items.length > 1 ? items[1] : items[0];
+    if (!item) return null;
+    const titleEl = item.querySelector('.s-item__title span, .s-item__title');
+    const title = titleEl?.textContent?.trim();
+    if (title === 'Shop on eBay') return null;
+    const priceEl = item.querySelector('.s-item__price');
+    const priceText = priceEl?.textContent || '';
+    const priceMatch = priceText.match(/\$\s*([\d,]+\.?\d*)/);
+    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
+    const linkEl = item.querySelector('.s-item__link');
+    const url = linkEl?.href?.split('?')[0];
+    return { title: title?.substring(0, 200), price, url };
+  });
+  return product;
+}
+
+async function extractBestBuy(page) {
+  await page.waitForSelector('.sku-item, [data-sku-id]', { timeout: 8000 }).catch(() => {});
+  
+  const product = await page.evaluate(() => {
+    const item = document.querySelector('.sku-item, [data-sku-id], .list-item');
+    if (!item) return null;
+    const titleEl = item.querySelector('.sku-title a, .sku-header a, h4 a');
+    const title = titleEl?.textContent?.trim();
+    const url = titleEl ? `https://www.bestbuy.com${titleEl.getAttribute('href')}` : null;
+    const priceEl = item.querySelector('.priceView-customer-price span, [data-testid="customer-price"] span');
+    const priceText = priceEl?.textContent || '';
+    const priceMatch = priceText.match(/\$?([\d,]+\.?\d*)/);
+    const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '')) : null;
+    return { title, price, url };
+  });
+  return product;
+}
+
+// Search a single retailer using headless browser
+async function searchRetailer(retailer, query) {
+  let context;
   try {
-    const ddgUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(retailer.ddgQuery(query))}`;
-    
-    const response = await fetch(ddgUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-      },
-      signal: controller.signal
+    const br = await getBrowser();
+    context = await br.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 800 },
+      locale: 'en-US',
     });
     
-    clearTimeout(timeoutId);
+    const page = await context.newPage();
+    const url = retailer.searchUrl(query);
     
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
     
-    const html = await response.text();
-    const $ = cheerio.load(html);
+    // Give JS time to render (some sites need more time)
+    const waitTime = ['Walmart', 'eBay', 'Best Buy'].includes(retailer.name) ? 4000 : 2000;
+    await page.waitForTimeout(waitTime);
     
-    // Parse DuckDuckGo results
-    const results = [];
-    $('.result').each((i, elem) => {
-      if (i >= 3) return false; // Only check first 3 results
-      
-      const $result = $(elem);
-      const title = $result.find('.result__a').text().trim();
-      const url = $result.find('.result__url').attr('href');
-      const snippet = $result.find('.result__snippet').text().trim();
-      
-      if (title && url) {
-        // Extract actual URL from DuckDuckGo redirect
-        let actualUrl = url;
-        try {
-          const urlObj = new URL(url);
-          const uddg = urlObj.searchParams.get('uddg');
-          if (uddg) {
-            actualUrl = decodeURIComponent(uddg);
-          }
-        } catch (e) {
-          // Keep original URL if parsing fails
-        }
-        
-        // Extract price from snippet
-        const price = extractPrice(snippet);
-        
-        if (price) {
-          results.push({
-            title,
-            url: actualUrl,
-            snippet,
-            price
-          });
-        }
-      }
-    });
+    const product = await retailer.parse(page);
+    await context.close();
     
-    // Return the first result with a price, or create fallback
-    if (results.length > 0) {
-      const best = results[0];
+    if (product && (product.price || product.url)) {
       return {
         retailer: retailer.name,
         retailerEmoji: retailer.emoji,
         retailerColor: retailer.color,
-        productName: best.title,
-        price: best.price,
-        url: best.url,
-        description: best.snippet.substring(0, 200),
+        productName: product.title || query,
+        price: product.price,
+        url: product.url || url,
+        description: product.price ? `$${product.price} on ${retailer.name}` : `View on ${retailer.name}`,
         inStock: true,
-        source: 'search'
-      };
-    } else {
-      // Fallback to search page URL
-      return {
-        retailer: retailer.name,
-        retailerEmoji: retailer.emoji,
-        retailerColor: retailer.color,
-        productName: `${query} on ${retailer.name}`,
-        price: null,
-        url: retailer.searchUrl(query),
-        description: `View search results for "${query}" on ${retailer.name}`,
-        inStock: true,
-        source: 'fallback'
+        source: product.price ? 'live' : 'live-noPrice',
       };
     }
-    
-  } catch (error) {
-    clearTimeout(timeoutId);
-    
-    // Return fallback on error
-    return {
-      retailer: retailer.name,
-      retailerEmoji: retailer.emoji,
-      retailerColor: retailer.color,
-      productName: `${query} on ${retailer.name}`,
-      price: null,
-      url: retailer.searchUrl(query),
-      description: `View search results for "${query}" on ${retailer.name}`,
-      inStock: true,
-      source: 'error',
-      error: error.message
-    };
+  } catch (err) {
+    console.error(`[${retailer.name}] Error:`, err.message);
+    if (context) await context.close().catch(() => {});
   }
+
+  // Fallback
+  return {
+    retailer: retailer.name,
+    retailerEmoji: retailer.emoji,
+    retailerColor: retailer.color,
+    productName: query,
+    price: null,
+    url: retailer.searchUrl(query),
+    description: `Search "${query}" on ${retailer.name}`,
+    inStock: true,
+    source: 'fallback',
+  };
 }
 
 // Main search endpoint
 app.get('/api/search', async (req, res) => {
   const query = req.query.q;
-  
-  if (!query || query.trim().length === 0) {
-    return res.status(400).json({
-      error: 'Query parameter "q" is required'
-    });
+  if (!query || !query.trim()) {
+    return res.status(400).json({ error: 'Query parameter "q" is required' });
   }
-  
-  console.log(`[${new Date().toISOString()}] Search request: "${query}" from ${req.ip}`);
-  
+
+  console.log(`[${new Date().toISOString()}] Search: "${query}"`);
+  const startTime = Date.now();
+
   try {
-    // Search all retailers in parallel
-    const searchPromises = RETAILERS.map(retailer => 
-      searchRetailer(retailer, query)
-    );
-    
-    const results = await Promise.allSettled(searchPromises);
-    
-    // Extract successful results
-    const products = results.map((result, index) => {
-      if (result.status === 'fulfilled') {
-        return result.value;
-      } else {
-        // Create fallback for rejected promises
-        const retailer = RETAILERS[index];
-        return {
-          retailer: retailer.name,
-          retailerEmoji: retailer.emoji,
-          retailerColor: retailer.color,
-          productName: `${query} on ${retailer.name}`,
-          price: null,
-          url: retailer.searchUrl(query),
-          description: `View search results for "${query}" on ${retailer.name}`,
-          inStock: true,
-          source: 'fallback'
-        };
-      }
+    // Search all retailers in parallel (but limit concurrency to 3 to avoid memory issues)
+    const results = [];
+    for (let i = 0; i < RETAILERS.length; i += 3) {
+      const batch = RETAILERS.slice(i, i + 3);
+      const batchResults = await Promise.allSettled(
+        batch.map(r => searchRetailer(r, query))
+      );
+      results.push(...batchResults);
+    }
+
+    const products = results.map((r, idx) => {
+      if (r.status === 'fulfilled') return r.value;
+      const ret = RETAILERS[idx];
+      return {
+        retailer: ret.name, retailerEmoji: ret.emoji, retailerColor: ret.color,
+        productName: query, price: null, url: ret.searchUrl(query),
+        description: `Search on ${ret.name}`, inStock: true, source: 'error',
+      };
     });
-    
+
+    const elapsed = Date.now() - startTime;
     const response = {
       query,
       results: products,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      elapsed: `${elapsed}ms`,
+      sources: {
+        live: products.filter(p => p.source.startsWith('live')).length,
+        withPrice: products.filter(p => p.price).length,
+        fallback: products.filter(p => p.source === 'fallback' || p.source === 'error').length,
+      }
     };
-    
-    console.log(`[${new Date().toISOString()}] Returning ${products.length} results for "${query}"`);
-    
+
+    console.log(`[${new Date().toISOString()}] "${query}" → ${response.sources.withPrice} prices in ${elapsed}ms`);
     res.json(response);
-    
+
   } catch (error) {
-    console.error(`[${new Date().toISOString()}] Error processing search:`, error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: error.message
-    });
+    console.error('Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// Start server
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  if (browser) await browser.close();
+  process.exit(0);
+});
+
+// Pre-launch browser on startup
+getBrowser().then(() => console.log('Browser ready'));
+
 app.listen(PORT, () => {
-  console.log(`PriceFlare API server running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/health`);
-  console.log(`Search endpoint: http://localhost:${PORT}/api/search?q=<query>`);
+  console.log(`PriceFlare API running on port ${PORT} (Playwright + Chromium)`);
 });
