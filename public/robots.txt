@@ -1,0 +1,20 @@
+# Robots.txt for PriceFlare.com
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /_next/
+
+# Sitemap location
+Sitemap: https://priceflare.com/sitemap.xml
+
+# Crawl-delay for bots
+Crawl-delay: 1
+
+# Google
+User-agent: Googlebot
+Allow: /
+
+# Bing
+User-agent: Bingbot
+Allow: /
