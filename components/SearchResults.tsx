@@ -59,7 +59,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
             className="bg-green-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-green-700 transition-all duration-200 flex items-center gap-2 hover:scale-[1.03] active:scale-[0.98]"
             aria-label={`View deal at ${lowestPriceProduct.retailer}`}
           >
-            View Deal <ExternalLink className="w-4 h-4" />
+            View on {lowestPriceProduct.retailer} <ExternalLink className="w-4 h-4" />
           </a>
         </div>
       </div>
@@ -231,7 +231,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
                   className="flex-1 min-w-[200px] bg-gradient-to-r from-sky-blue to-dark-blue text-white px-4 py-3 rounded-xl font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
                   aria-label={`View ${product.name} at ${product.retailer}`}
                 >
-                  View Product <ExternalLink className="w-4 h-4" />
+                  View on {product.retailer} <ExternalLink className="w-4 h-4" />
                 </a>
                 <button
                   onClick={() => setAlertModalProduct(product)}

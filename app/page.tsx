@@ -6,6 +6,9 @@ import SearchResults from "@/components/SearchResults";
 import SearchHistory from "@/components/SearchHistory";
 import { Product } from "@/types";
 
+// API Configuration
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.100:8095';
+
 // Retailer configs — single source of truth
 const RETAILERS = [
   { name: "Amazon", emoji: "📦", color: "#FF9900", url: "https://www.amazon.com", delay: 400 },
@@ -30,7 +33,7 @@ export default function Home() {
     }
   }, []);
 
-  const handleSearch = useCallback((query: string) => {
+  const handleSearch = useCallback(async (query: string) => {
     if (!query.trim()) return;
 
     // Update history
@@ -66,14 +69,67 @@ export default function Home() {
       }
     });
 
-    // Complete search after all progress bars finish
-    const longestDuration = Math.max(...RETAILERS.map((r) => 1800 + r.delay * 2));
-    const completeTimer = setTimeout(() => {
-      setSearchResults(generateMockResults(query));
-      setIsSearching(false);
-      setSearchProgress({});
-    }, longestDuration);
-    progressTimers.current.push(completeTimer);
+    // Fetch real data from API
+    try {
+      const response = await fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}`);
+      
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+      
+      const data = await response.json();
+      
+      // Enrich API results with mock data for fields not provided by API
+      const enrichedResults = data.results.map((apiProduct: any, idx: number) => {
+        const details = PRODUCT_DETAILS[apiProduct.retailer] || PRODUCT_DETAILS["Amazon"];
+        const reviewIdx = (idx + query.length) % REVIEW_SNIPPETS.length;
+        const priceToUse = apiProduct.price || getProductBasePrice(query);
+        const priceHistory = generatePriceHistory(priceToUse, query + apiProduct.retailer);
+        const avgPrice3Months = calculate3MonthAverage(priceHistory);
+        const isPriceFlare = apiProduct.price && apiProduct.price < avgPrice3Months * 0.95;
+
+        return {
+          id: `${apiProduct.retailer.toLowerCase()}-${Date.now()}-${idx}`,
+          name: apiProduct.productName,
+          retailer: apiProduct.retailer,
+          retailerEmoji: apiProduct.retailerEmoji,
+          retailerColor: apiProduct.retailerColor,
+          price: apiProduct.price || 0,
+          description: apiProduct.description || details.desc,
+          inStock: apiProduct.inStock !== false,
+          url: apiProduct.url,
+          reviews: hashStringToRange(query + apiProduct.retailer + "rev", 847, 9200),
+          rating: +(4.0 + hashStringToRange(query + apiProduct.retailer + "rate", 0, 10) / 10).toFixed(1),
+          pros: details.pros,
+          cons: details.cons.slice(0, 2 + (idx % 2)),
+          reviewSnippet: REVIEW_SNIPPETS[reviewIdx],
+          inventory: hashStringToRange(query + apiProduct.retailer + "inv", 3, 180),
+          priceHistory,
+          isPriceFlare,
+        };
+      });
+
+      // Wait for progress bars to complete before showing results
+      const longestDuration = Math.max(...RETAILERS.map((r) => 1800 + r.delay * 2));
+      const completeTimer = setTimeout(() => {
+        setSearchResults(enrichedResults);
+        setIsSearching(false);
+        setSearchProgress({});
+      }, longestDuration);
+      progressTimers.current.push(completeTimer);
+
+    } catch (error) {
+      console.error('API search failed, falling back to mock data:', error);
+      
+      // Fallback to mock data if API fails
+      const longestDuration = Math.max(...RETAILERS.map((r) => 1800 + r.delay * 2));
+      const completeTimer = setTimeout(() => {
+        setSearchResults(generateMockResults(query));
+        setIsSearching(false);
+        setSearchProgress({});
+      }, longestDuration);
+      progressTimers.current.push(completeTimer);
+    }
   }, [searchHistory]);
 
   const clearHistory = () => {
