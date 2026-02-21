@@ -15,6 +15,7 @@ export interface Product {
   reviewSnippet: string;
   inventory: number;
   priceHistory: PriceHistoryPoint[];
+  isPriceFlare: boolean;
 }
 
 export interface PriceHistoryPoint {

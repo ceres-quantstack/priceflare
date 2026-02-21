@@ -83,6 +83,8 @@ export default function Home() {
 
   return (
     <div className="container mx-auto px-4 py-8 max-w-7xl">
+      <a href="#main-content" className="skip-to-content">Skip to content</a>
+      
       {/* Hero */}
       <div className="text-center mb-12 mt-8">
         <h1 className="text-5xl md:text-6xl font-bold text-dark-blue mb-4 animate-float">
@@ -96,7 +98,7 @@ export default function Home() {
       </div>
 
       {/* Search */}
-      <div className="mb-8">
+      <div id="main-content" className="mb-8">
         <SearchBar
           onSearch={handleSearch}
           isSearching={isSearching}
@@ -132,7 +134,7 @@ export default function Home() {
               <button
                 key={q}
                 onClick={() => handleSearch(q)}
-                className="glass px-4 py-2 rounded-full text-sm text-gray-700 hover:bg-sky-blue/20 transition-colors duration-200"
+                className="glass px-4 py-2 rounded-full text-sm text-gray-700 hover:bg-sky-blue/20 transition-all duration-200"
               >
                 {q}
               </button>
@@ -162,61 +164,109 @@ export default function Home() {
 
 // --- Mock Data Generation ---
 
+// Realistic product name variations by retailer
+const PRODUCT_NAME_VARIATIONS: Record<string, (query: string) => string> = {
+  Amazon: (q) => `${q} - Amazon Exclusive Bundle`,
+  Walmart: (q) => `${q} + Free Shipping`,
+  Target: (q) => `${q} (RedCard Members Save 5%)`,
+  Newegg: (q) => `${q} - Tech Specialist Edition`,
+  eBay: (q) => `${q} - Certified Refurbished`,
+  "Best Buy": (q) => `${q} with Geek Squad Protection`,
+};
+
 const PRODUCT_DETAILS: Record<string, { desc: string; pros: string[]; cons: string[] }> = {
   Amazon: {
-    desc: "Ships with Prime 2-day delivery. Fulfilled by Amazon warehouse.",
-    pros: ["Prime 2-day shipping", "Easy returns within 30 days", "Wide seller marketplace", "Price matching available"],
-    cons: ["Third-party seller quality varies", "Packaging can be excessive"],
+    desc: "Prime eligible with free 2-day shipping. Fulfilled by Amazon with their A-to-Z Guarantee. Easy returns within 30 days, no questions asked.",
+    pros: ["Prime 2-day shipping included", "30-day easy returns", "A-to-Z Guarantee protection", "Often bundled with exclusive accessories"],
+    cons: ["Price can fluctuate frequently", "May be third-party seller", "Packaging sometimes excessive"],
   },
   Walmart: {
-    desc: "Available for pickup today or free next-day delivery on orders $35+.",
-    pros: ["Free next-day delivery $35+", "In-store pickup available", "Walmart+ member savings", "Price match guarantee"],
-    cons: ["Limited premium product selection", "Customer service can be slow"],
+    desc: "Free next-day delivery on orders $35+. Available for same-day pickup at your local Walmart store. Price match guarantee available.",
+    pros: ["Free next-day delivery $35+", "Same-day store pickup option", "Walmart+ member exclusive savings", "Excellent price match guarantee"],
+    cons: ["Limited premium brand selection", "Customer service response times vary", "Website can be cluttered"],
   },
   Target: {
-    desc: "Order with same-day Drive Up or delivery. RedCard saves 5% on every purchase.",
-    pros: ["Same-day Drive Up pickup", "5% off with RedCard", "Clean store experience", "Excellent return policy"],
-    cons: ["Higher base prices on some items", "Smaller online catalog"],
+    desc: "Order with same-day Drive Up, Order Pickup, or delivery via Shipt. RedCard members save an extra 5% on every purchase automatically.",
+    pros: ["Same-day Drive Up pickup", "5% off every purchase with RedCard", "Excellent in-store experience", "Industry-leading return policy (90 days)"],
+    cons: ["Slightly higher base prices", "Smaller online catalog vs competitors", "Popular items sell out quickly"],
   },
   Newegg: {
-    desc: "Tech-focused retailer with detailed specs and user reviews from verified buyers.",
-    pros: ["Detailed tech specifications", "Verified buyer reviews", "Combo deal bundles", "Open-box savings"],
-    cons: ["Returns can be complicated", "Shipping times vary by seller"],
+    desc: "Tech-focused retailer with detailed product specifications and verified buyer reviews. Known for combo deals and open-box discounts.",
+    pros: ["Detailed tech specs and comparisons", "Verified buyer review system", "Frequent combo deal bundles", "Open-box items save 10-30%"],
+    cons: ["Return policy can be restrictive", "Shipping times vary by seller", "Restocking fees on some returns"],
   },
   eBay: {
-    desc: "New and refurbished options available. eBay Money Back Guarantee on all purchases.",
-    pros: ["Refurbished options at lower prices", "Money Back Guarantee", "Auction deals possible", "Global marketplace"],
-    cons: ["Shipping times can vary", "Condition descriptions vary by seller"],
+    desc: "New, refurbished, and used options available. All purchases covered by eBay Money Back Guarantee. Seller ratings provide transparency.",
+    pros: ["Refurbished options at 20-40% off", "eBay Money Back Guarantee", "Auction format can yield deals", "Global marketplace variety"],
+    cons: ["Item condition varies by seller", "Shipping can take 1-3 weeks", "Returns handled by individual sellers"],
   },
   "Best Buy": {
-    desc: "Geek Squad protection available. Price match with major retailers within 15 days.",
-    pros: ["Geek Squad setup & support", "15-day price match guarantee", "Same-day store pickup", "My Best Buy rewards"],
-    cons: ["Premium pricing on accessories", "Extended warranty upsells"],
+    desc: "Expert Geek Squad support available for setup and troubleshooting. 15-day price match guarantee with major retailers. Totaltech membership perks.",
+    pros: ["Geek Squad setup & 24/7 support", "15-day price match guarantee", "Same-day pickup at 1000+ stores", "Totaltech member exclusive deals"],
+    cons: ["Premium pricing on accessories", "Aggressive extended warranty upsells", "Limited third-party sellers"],
   },
 };
 
 const REVIEW_SNIPPETS = [
-  "Absolutely love this product! It exceeded my expectations in every way. Build quality is outstanding.",
-  "Great value for the price. Works exactly as described. Setup was straightforward and took about 10 minutes.",
-  "Solid product overall. I've been using it daily for three months and it still performs like new.",
-  "Best purchase I've made this year. The quality is noticeably better than competing products I've tried.",
-  "Does what it says on the box. No complaints after six months of regular use. Would recommend.",
-  "Impressive build quality and attention to detail. You can tell a lot of thought went into the design.",
+  "Absolutely love this! Exceeded expectations in build quality and performance. Setup took 10 minutes. Highly recommend for anyone considering this category.",
+  "Fantastic value for the money. Works flawlessly after 3 months of daily use. Customer service was helpful when I had a question about setup.",
+  "Solid product overall. Does exactly what it promises. I compared this to 4 other models and this was the clear winner in my testing.",
+  "Best purchase I've made this year. The quality difference is noticeable immediately. My previous model lasted 2 years; expecting this to last 5+.",
+  "Very happy with this purchase. No regrets after 6 months of regular use. Would definitely buy again and recommend to friends.",
+  "Outstanding build quality and attention to detail. You can tell the manufacturer really thought through the user experience here.",
+  "Great product but arrived with minor cosmetic damage. Seller quickly sent a replacement. Works perfectly now. Would give 5 stars if shipping was better.",
+  "Meets all my needs and then some. Impressed by how well it handles demanding tasks. Battery life/durability is excellent.",
 ];
 
-function generateMockResults(query: string): Product[] {
-  const basePrice = hashStringToRange(query, 49, 899);
+// Product pricing strategy: realistic base prices by category
+function getProductBasePrice(query: string): number {
+  const q = query.toLowerCase();
+  
+  // High-end electronics ($800-$1200)
+  if (q.includes("iphone") && (q.includes("pro") || q.includes("max"))) return 999;
+  if (q.includes("macbook pro") || q.includes("laptop") && q.includes("pro")) return 1899;
+  if (q.includes("playstation 5") || q.includes("ps5") || q.includes("xbox series x")) return 499;
+  
+  // Mid-range electronics ($300-$800)
+  if (q.includes("ipad") || q.includes("tablet")) return 449;
+  if (q.includes("airpods") || q.includes("headphones") && q.includes("sony")) return 249;
+  if (q.includes("watch") || q.includes("smartwatch")) return 399;
+  if (q.includes("camera")) return 599;
+  
+  // Appliances ($200-$600)
+  if (q.includes("dyson") || q.includes("vacuum")) return 399;
+  if (q.includes("air fryer") || q.includes("instant pot")) return 129;
+  if (q.includes("coffee") || q.includes("espresso")) return 199;
+  
+  // Budget items ($50-$200)
+  if (q.includes("speaker") || q.includes("echo") || q.includes("nest")) return 79;
+  if (q.includes("keyboard") || q.includes("mouse")) return 69;
+  if (q.includes("case") || q.includes("charger")) return 29;
+  
+  // Default mid-range
+  return 299;
+}
 
+function generateMockResults(query: string): Product[] {
+  const basePrice = getProductBasePrice(query);
+  
   return RETAILERS.map((retailer, idx) => {
-    // Each retailer gets a slightly different price — realistic variance
-    const variance = hashStringToRange(query + retailer.name, -80, 80);
-    const price = Math.max(basePrice + variance, 29.99);
+    // Each retailer gets realistic price variance (±5-15%)
+    const variancePercent = hashStringToRange(query + retailer.name, -15, 15);
+    const variance = basePrice * (variancePercent / 100);
+    const price = Math.max(basePrice + variance, basePrice * 0.5);
+    
     const details = PRODUCT_DETAILS[retailer.name];
     const reviewIdx = (idx + query.length) % REVIEW_SNIPPETS.length;
+    const nameVariation = PRODUCT_NAME_VARIATIONS[retailer.name] || ((q) => q);
+
+    const priceHistory = generatePriceHistory(price, query + retailer.name);
+    const avgPrice3Months = calculate3MonthAverage(priceHistory);
+    const isPriceFlare = price < avgPrice3Months * 0.95; // 5% below 3-month avg
 
     return {
       id: `${retailer.name.toLowerCase()}-${Date.now()}-${idx}`,
-      name: query,
+      name: nameVariation(query),
       retailer: retailer.name,
       retailerEmoji: retailer.emoji,
       retailerColor: retailer.color,
@@ -224,30 +274,74 @@ function generateMockResults(query: string): Product[] {
       description: details.desc,
       inStock: hashStringToRange(query + retailer.name + "stock", 0, 10) > 1, // 90% in stock
       url: `${retailer.url}/s?k=${encodeURIComponent(query)}`,
-      reviews: hashStringToRange(query + retailer.name + "rev", 87, 12400),
-      rating: +(3.5 + hashStringToRange(query + retailer.name + "rate", 0, 15) / 10).toFixed(1),
-      pros: details.pros.slice(0, 3 + (idx % 2)),
-      cons: details.cons,
+      reviews: hashStringToRange(query + retailer.name + "rev", 847, 9200),
+      rating: +(4.0 + hashStringToRange(query + retailer.name + "rate", 0, 10) / 10).toFixed(1),
+      pros: details.pros,
+      cons: details.cons.slice(0, 2 + (idx % 2)), // Vary cons count
       reviewSnippet: REVIEW_SNIPPETS[reviewIdx],
-      inventory: hashStringToRange(query + retailer.name + "inv", 1, 150),
-      priceHistory: generatePriceHistory(basePrice + variance, query + retailer.name),
+      inventory: hashStringToRange(query + retailer.name + "inv", 3, 180),
+      priceHistory,
+      isPriceFlare,
     };
   }).filter((p) => p.inStock); // Spec says: don't show out-of-stock results
 }
 
-function generatePriceHistory(basePrice: number, seed: string) {
+function calculate3MonthAverage(history: { date: string; price: number; isSale: boolean }[]): number {
+  const last90Days = history.slice(-3);
+  const sum = last90Days.reduce((acc, point) => acc + point.price, 0);
+  return sum / last90Days.length;
+}
+
+// Realistic price history with seasonal patterns
+function generatePriceHistory(currentPrice: number, seed: string) {
   const history = [];
   const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
 
   for (let i = 36; i >= 0; i--) {
-    const date = new Date(now);
-    date.setMonth(date.getMonth() - i);
-
-    // Deterministic variance from seed
-    const h = hashStringToRange(seed + i, -40, 40);
-    const isSale = hashStringToRange(seed + "sale" + i, 0, 10) > 7;
-    const saleDiscount = isSale ? hashStringToRange(seed + "disc" + i, 20, 80) : 0;
-    const price = Math.max(basePrice + h - saleDiscount, basePrice * 0.4);
+    const date = new Date(currentYear, currentMonth - i, 15);
+    const month = date.getMonth();
+    
+    // Seasonal pricing patterns
+    let seasonalFactor = 1.0;
+    let isSale = false;
+    
+    // Black Friday / Cyber Monday (late November)
+    if (month === 10) { // November
+      seasonalFactor = 0.75; // 25% off
+      isSale = true;
+    }
+    // Prime Day (July)
+    else if (month === 6) { // July
+      seasonalFactor = 0.80; // 20% off
+      isSale = true;
+    }
+    // Back to School (August-September)
+    else if (month === 7 || month === 8) {
+      seasonalFactor = 0.88; // 12% off
+      isSale = true;
+    }
+    // Holiday markup (December)
+    else if (month === 11) {
+      seasonalFactor = 1.08; // 8% markup
+    }
+    // New Year clearance (January)
+    else if (month === 0) {
+      seasonalFactor = 0.82; // 18% off
+      isSale = true;
+    }
+    // Spring sales (April)
+    else if (month === 3) {
+      seasonalFactor = 0.90; // 10% off
+      isSale = true;
+    }
+    
+    // Add minor random variance (±3%)
+    const randomVariance = hashStringToRange(seed + i, -3, 3) / 100;
+    const finalFactor = seasonalFactor * (1 + randomVariance);
+    
+    const price = Math.max(currentPrice * finalFactor, currentPrice * 0.6);
 
     history.push({
       date: date.toISOString().split("T")[0],

@@ -4,17 +4,7 @@ import { useState } from "react";
 import { Product } from "@/types";
 import PriceHistoryChart from "./PriceHistoryChart";
 import PriceAlertModal from "./PriceAlertModal";
-import {
-  ExternalLink,
-  Star,
-  TrendingDown,
-  Calendar,
-  Bell,
-  ChevronDown,
-  ChevronUp,
-  Package,
-  MessageSquare,
-} from "lucide-react";
+import { ExternalLink, Star, TrendingDown, Calendar, Bell, ChevronDown, ChevronUp } from "lucide-react";
 
 interface SearchResultsProps {
   results: Product[];
@@ -22,28 +12,25 @@ interface SearchResultsProps {
 
 export default function SearchResults({ results }: SearchResultsProps) {
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
-  const [alertModalProduct, setAlertModalProduct] = useState<Product | null>(null);
   const [expandedReview, setExpandedReview] = useState<string | null>(null);
+  const [alertModalProduct, setAlertModalProduct] = useState<Product | null>(null);
 
   // Find lowest price
   const lowestPriceProduct = results.reduce((prev, current) =>
     prev.price < current.price ? prev : current
   );
 
-  const savings = results.reduce((prev, current) =>
-    prev.price > current.price ? prev : current
-  ).price - lowestPriceProduct.price;
+  // Calculate savings
+  const highestPrice = Math.max(...results.map((p) => p.price));
+  const savings = highestPrice - lowestPriceProduct.price;
 
-  // Predictions
-  const predictions = generatePredictions();
+  // Calculate predictions
+  const predictions = generatePredictions(results[0]);
 
   return (
     <div className="space-y-8">
-      {/* Lowest Price Banner */}
-      <div className="glass rounded-3xl p-6 border-2 border-green-400/60 relative overflow-hidden">
-        <div className="absolute top-0 right-0 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
-          BEST DEAL
-        </div>
+      {/* Lowest Price Section */}
+      <div className="glass rounded-3xl p-6 border-2 border-green-400 shadow-lg">
         <div className="flex items-center gap-2 mb-4">
           <TrendingDown className="w-6 h-6 text-green-600" />
           <h2 className="text-2xl font-bold text-dark-blue">Lowest Price Found</h2>
@@ -70,6 +57,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
             target="_blank"
             rel="noopener noreferrer"
             className="bg-green-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-green-700 transition-all duration-200 flex items-center gap-2 hover:scale-[1.03] active:scale-[0.98]"
+            aria-label={`View deal at ${lowestPriceProduct.retailer}`}
           >
             View Deal <ExternalLink className="w-4 h-4" />
           </a>
@@ -120,7 +108,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
           return (
             <div
               key={product.id}
-              className={`glass rounded-3xl p-6 transition-all duration-300 hover:shadow-2xl ${
+              className={`glass rounded-3xl p-6 transition-all duration-200 hover:shadow-2xl hover:-translate-y-1 ${
                 isLowest ? "ring-2 ring-green-400/50" : ""
               }`}
             >
@@ -146,27 +134,25 @@ export default function SearchResults({ results }: SearchResultsProps) {
                   </div>
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-3xl font-bold text-dark-blue">
-                    ${product.price.toFixed(2)}
-                  </p>
-                  <div className="flex items-center gap-1 justify-end mt-1">
-                    <Package className="w-3.5 h-3.5 text-green-600" />
-                    <span className="text-sm text-green-600 font-medium">
-                      {product.inventory < 10
-                        ? `Only ${product.inventory} left!`
-                        : "In Stock ✓"}
-                    </span>
+                  <div className="flex items-center gap-2 justify-end mb-1">
+                    <p className="text-3xl font-bold text-dark-blue">${product.price.toFixed(2)}</p>
+                    {product.isPriceFlare && (
+                      <div className="relative">
+                        <span className="inline-flex items-center gap-1 bg-gradient-to-r from-orange-500 to-red-500 text-white px-3 py-1 rounded-full text-xs font-bold shadow-lg">
+                          🔥 PriceFlare!
+                        </span>
+                        <span className="absolute inset-0 rounded-full bg-orange-400 opacity-50 animate-ping"></span>
+                      </div>
+                    )}
                   </div>
+                  <p className="text-sm text-green-600 font-medium">In Stock ✓</p>
                 </div>
               </div>
 
-              {/* Description */}
-              <p className="text-gray-600 mb-4 text-sm leading-relaxed">
-                {product.description}
-              </p>
+              <p className="text-gray-700 mb-4">{product.description}</p>
 
-              {/* Rating & Reviews */}
-              <div className="flex items-center gap-4 mb-4 flex-wrap">
+              {/* Rating and Reviews */}
+              <div className="flex items-center gap-4 mb-4">
                 <div className="flex items-center gap-1">
                   {[...Array(5)].map((_, i) => (
                     <Star
@@ -174,68 +160,62 @@ export default function SearchResults({ results }: SearchResultsProps) {
                       className={`w-4 h-4 ${
                         i < Math.floor(product.rating)
                           ? "fill-yellow-400 text-yellow-400"
-                          : i < product.rating
-                          ? "fill-yellow-200 text-yellow-300"
                           : "text-gray-300"
                       }`}
                     />
                   ))}
-                  <span className="ml-1.5 text-sm font-bold text-gray-700">
-                    {product.rating}
-                  </span>
+                  <span className="ml-2 text-sm font-semibold">{product.rating}</span>
                 </div>
-                <span className="text-sm text-gray-500">
-                  ({product.reviews.toLocaleString()} reviews)
-                </span>
+                <span className="text-sm text-gray-600">({product.reviews.toLocaleString()} reviews)</span>
               </div>
 
-              {/* Review Snippet */}
-              <div className="mb-4">
-                <button
-                  onClick={() =>
-                    setExpandedReview(isReviewExpanded ? null : product.id)
-                  }
-                  className="flex items-center gap-1.5 text-sm text-sky-blue hover:text-dark-blue transition-colors duration-200"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  <span className="font-medium">
-                    {isReviewExpanded ? "Hide review" : "Read a review"}
-                  </span>
-                </button>
-                {isReviewExpanded && (
-                  <blockquote className="mt-2 pl-4 border-l-2 border-sky-blue/30 text-sm text-gray-600 italic">
-                    "{product.reviewSnippet}"
-                    <span className="block mt-1 text-xs text-gray-400 not-italic">
-                      — Verified Buyer
-                    </span>
-                  </blockquote>
+              {/* Review Snippet - Expandable */}
+              <div className="mb-4 p-4 bg-blue-50 rounded-xl border border-blue-200">
+                <p className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                  <span>💬</span> Top Customer Review
+                </p>
+                <p className="text-sm text-gray-700 italic">
+                  "{isReviewExpanded ? product.reviewSnippet : product.reviewSnippet.slice(0, 120) + "..."}"
+                </p>
+                {product.reviewSnippet.length > 120 && (
+                  <button
+                    onClick={() => setExpandedReview(isReviewExpanded ? null : product.id)}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-semibold mt-2 flex items-center gap-1"
+                    aria-label={isReviewExpanded ? "Show less" : "Show more"}
+                  >
+                    {isReviewExpanded ? (
+                      <>
+                        Show less <ChevronUp className="w-3 h-3" />
+                      </>
+                    ) : (
+                      <>
+                        Read more <ChevronDown className="w-3 h-3" />
+                      </>
+                    )}
+                  </button>
                 )}
               </div>
 
-              {/* Pros / Cons */}
-              <div className="grid md:grid-cols-2 gap-4 mb-5">
+              {/* Pros and Cons */}
+              <div className="grid md:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <p className="text-xs font-bold text-green-700 uppercase tracking-wider mb-2">
-                    Pros
-                  </p>
+                  <p className="text-sm font-semibold text-green-700 mb-2">✓ Pros:</p>
                   <ul className="text-sm text-gray-700 space-y-1">
                     {product.pros.map((pro, idx) => (
-                      <li key={idx} className="flex items-start gap-1.5">
-                        <span className="text-green-500 mt-0.5">✓</span>
-                        {pro}
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="text-green-600 flex-shrink-0">✓</span>
+                        <span>{pro}</span>
                       </li>
                     ))}
                   </ul>
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-red-700 uppercase tracking-wider mb-2">
-                    Cons
-                  </p>
+                  <p className="text-sm font-semibold text-red-700 mb-2">✗ Cons:</p>
                   <ul className="text-sm text-gray-700 space-y-1">
                     {product.cons.map((con, idx) => (
-                      <li key={idx} className="flex items-start gap-1.5">
-                        <span className="text-red-400 mt-0.5">✗</span>
-                        {con}
+                      <li key={idx} className="flex items-start gap-2">
+                        <span className="text-red-600 flex-shrink-0">✗</span>
+                        <span>{con}</span>
                       </li>
                     ))}
                   </ul>
@@ -243,42 +223,36 @@ export default function SearchResults({ results }: SearchResultsProps) {
               </div>
 
               {/* Action Buttons */}
-              <div className="flex gap-3 flex-wrap">
+              <div className="flex gap-3 mb-4 flex-wrap">
                 <a
                   href={product.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 min-w-[140px] bg-gradient-to-r from-sky-blue to-dark-blue text-white px-4 py-3 rounded-xl font-semibold hover:shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2 text-sm"
+                  className="flex-1 min-w-[200px] bg-gradient-to-r from-sky-blue to-dark-blue text-white px-4 py-3 rounded-xl font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
+                  aria-label={`View ${product.name} at ${product.retailer}`}
                 >
                   View Product <ExternalLink className="w-4 h-4" />
                 </a>
                 <button
                   onClick={() => setAlertModalProduct(product)}
-                  className="glass px-4 py-3 rounded-xl font-semibold hover:bg-white/30 transition-all duration-200 flex items-center gap-2 text-sm"
+                  className="glass px-4 py-3 rounded-xl font-semibold hover:bg-white/40 transition-all flex items-center gap-2"
+                  aria-label="Set price alert"
                 >
-                  <Bell className="w-4 h-4" /> Alert
+                  <Bell className="w-4 h-4" />
+                  Set Alert
                 </button>
                 <button
-                  onClick={() =>
-                    setSelectedProduct(isExpanded ? null : product.id)
-                  }
-                  className="glass px-4 py-3 rounded-xl font-semibold hover:bg-white/30 transition-all duration-200 flex items-center gap-2 text-sm"
+                  onClick={() => setSelectedProduct(isExpanded ? null : product.id)}
+                  className="glass px-4 py-3 rounded-xl font-semibold hover:bg-white/40 transition-all"
+                  aria-label={isExpanded ? "Hide price history" : "Show price history"}
                 >
-                  {isExpanded ? (
-                    <>
-                      <ChevronUp className="w-4 h-4" /> Hide History
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="w-4 h-4" /> Price History
-                    </>
-                  )}
+                  {isExpanded ? "Hide" : "Show"} History
                 </button>
               </div>
 
               {/* Price History Chart */}
               {isExpanded && (
-                <div className="mt-6 pt-6 border-t border-gray-200/50">
+                <div className="mt-6 pt-6 border-t border-gray-200">
                   <PriceHistoryChart product={product} />
                 </div>
               )}
@@ -287,7 +261,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
         })}
       </div>
 
-      {/* Alert Modal */}
+      {/* Price Alert Modal */}
       {alertModalProduct && (
         <PriceAlertModal
           product={alertModalProduct}
@@ -298,25 +272,22 @@ export default function SearchResults({ results }: SearchResultsProps) {
   );
 }
 
-function generatePredictions() {
+function generatePredictions(product: Product) {
   const months = [
     "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "July", "August", "September", "October", "November", "December"
   ];
-  const now = new Date();
-  const m = now.getMonth();
 
-  // More realistic predictions based on known retail cycles
-  const saleMonths = [0, 4, 6, 10, 11]; // Jan, May, Jul, Nov, Dec
-  const nextSale = saleMonths.find((s) => s > m) ?? saleMonths[0];
-  const peakMonth = m < 9 ? 11 : 1; // Holiday season or post-holiday
+  const currentMonth = new Date().getMonth();
+
+  // Best time: Black Friday (November) or Prime Day (July)
+  const bestMonth = currentMonth < 6 ? 6 : 10; // July or November
+  const worstMonth = (currentMonth + 5) % 12; // 5 months from now
+  const nextSaleMonth = currentMonth === 10 ? 11 : (currentMonth < 6 ? 6 : 10);
 
   return {
-    bestTime: `${months[nextSale]} (historically 12-25% lower)`,
-    worstTime: `${months[peakMonth]} (peak demand, premium pricing)`,
-    nextSale:
-      nextSale === 10 || nextSale === 11
-        ? "Black Friday / Cyber Monday"
-        : `${months[nextSale]} clearance event`,
+    bestTime: `${months[bestMonth]} (Black Friday/Prime Day sales)`,
+    worstTime: `${months[worstMonth]} (peak demand period)`,
+    nextSale: `${months[nextSaleMonth]} ${nextSaleMonth === 6 ? "(Prime Day)" : nextSaleMonth === 10 ? "(Black Friday)" : ""}`,
   };
 }

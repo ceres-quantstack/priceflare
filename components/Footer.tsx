@@ -1,53 +1,70 @@
+"use client";
+
 import Link from "next/link";
-import { Flame, Shield, Zap } from "lucide-react";
+import { Heart } from "lucide-react";
 
 export default function Footer() {
+  const currentYear = new Date().getFullYear();
+
   return (
-    <footer className="mt-20 border-t border-gray-200/50">
-      <div className="container mx-auto px-4 py-12 max-w-7xl">
+    <footer className="glass-dark mt-16 border-t border-sky-blue/20">
+      <div className="container mx-auto px-4 py-8 max-w-7xl">
+        {/* Main Footer Content */}
         <div className="grid md:grid-cols-4 gap-8 mb-8">
           {/* Brand */}
-          <div className="md:col-span-1">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-xl font-bold text-dark-blue">PriceFlare</span>
-              <span className="text-xl">🔥</span>
+          <div>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-2xl font-bold text-white">PriceFlare</span>
+              <span className="text-2xl animate-fire-flicker">🔥</span>
             </div>
-            <p className="text-sm text-gray-500 leading-relaxed">
-              Track prices across major retailers. Get alerts when deals happen.
-              Never overpay again.
+            <p className="text-gray-300 text-sm leading-relaxed">
+              Smart price tracking across major retailers. Never overpay again.
             </p>
           </div>
 
-          {/* Navigation */}
+          {/* Quick Links */}
           <div>
-            <h4 className="font-semibold text-dark-blue mb-3 text-sm uppercase tracking-wider">
-              Navigate
-            </h4>
+            <h3 className="text-white font-semibold mb-4">Quick Links</h3>
             <ul className="space-y-2">
-              {[
-                { name: "Search Products", href: "/" },
-                { name: "Price Alerts", href: "/alerts" },
-                { name: "About", href: "/about" },
-                { name: "Contact", href: "/contact" },
-              ].map((link) => (
-                <li key={link.href}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-gray-500 hover:text-dark-blue transition-colors duration-200"
-                  >
-                    {link.name}
-                  </Link>
-                </li>
-              ))}
+              <li>
+                <Link
+                  href="/"
+                  className="text-gray-300 hover:text-white transition-colors text-sm"
+                >
+                  Search Products
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/alerts"
+                  className="text-gray-300 hover:text-white transition-colors text-sm"
+                >
+                  Price Alerts
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/about"
+                  className="text-gray-300 hover:text-white transition-colors text-sm"
+                >
+                  About Us
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/contact"
+                  className="text-gray-300 hover:text-white transition-colors text-sm"
+                >
+                  Contact
+                </Link>
+              </li>
             </ul>
           </div>
 
           {/* Retailers */}
           <div>
-            <h4 className="font-semibold text-dark-blue mb-3 text-sm uppercase tracking-wider">
-              Retailers
-            </h4>
-            <ul className="space-y-2 text-sm text-gray-500">
+            <h3 className="text-white font-semibold mb-4">We Track</h3>
+            <ul className="space-y-2 text-sm text-gray-300">
               <li>📦 Amazon</li>
               <li>🏪 Walmart</li>
               <li>🎯 Target</li>
@@ -57,35 +74,41 @@ export default function Footer() {
             </ul>
           </div>
 
-          {/* Trust Signals */}
+          {/* Privacy & Trust */}
           <div>
-            <h4 className="font-semibold text-dark-blue mb-3 text-sm uppercase tracking-wider">
-              Our Promise
-            </h4>
-            <ul className="space-y-3">
-              <li className="flex items-start gap-2">
-                <Shield className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
-                <span className="text-sm text-gray-500">No data stored — your privacy matters</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Zap className="w-4 h-4 text-yellow-500 mt-0.5 flex-shrink-0" />
-                <span className="text-sm text-gray-500">Real-time pricing from verified sources</span>
-              </li>
-              <li className="flex items-start gap-2">
-                <Flame className="w-4 h-4 text-orange-500 mt-0.5 flex-shrink-0" />
-                <span className="text-sm text-gray-500">Instant PriceFlare alerts on deals</span>
-              </li>
-            </ul>
+            <h3 className="text-white font-semibold mb-4">Our Promise</h3>
+            <div className="space-y-3">
+              <div className="flex items-start gap-2">
+                <span className="text-green-400 text-lg">✓</span>
+                <p className="text-gray-300 text-sm">Privacy-focused</p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-green-400 text-lg">✓</span>
+                <p className="text-gray-300 text-sm">No data stored</p>
+              </div>
+              <div className="flex items-start gap-2">
+                <span className="text-green-400 text-lg">✓</span>
+                <p className="text-gray-300 text-sm">Always free</p>
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Bottom Bar */}
-        <div className="border-t border-gray-200/50 pt-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-xs text-gray-400">
-            © {new Date().getFullYear()} PriceFlare. All rights reserved. Not affiliated with any retailer.
+        <div className="pt-6 border-t border-sky-blue/20 flex flex-col md:flex-row items-center justify-between gap-4">
+          <p className="text-gray-400 text-sm">
+            © {currentYear} PriceFlare. All rights reserved.
           </p>
-          <p className="text-xs text-gray-400">
-            Prices are fetched in real-time and may differ from retailer sites.
+          <p className="text-gray-400 text-sm flex items-center gap-2">
+            Made with <Heart className="w-4 h-4 text-red-400 fill-red-400" /> for smart shoppers
+          </p>
+        </div>
+
+        {/* Disclaimer */}
+        <div className="mt-6 p-4 bg-white/5 rounded-xl">
+          <p className="text-xs text-gray-400 leading-relaxed">
+            <strong>Disclaimer:</strong> PriceFlare is an independent price comparison service. We are not affiliated with Amazon, Walmart, Target, Newegg, eBay, or Best Buy. 
+            Product prices and availability are subject to change. Always verify current pricing on the retailer's website before purchase.
           </p>
         </div>
       </div>
