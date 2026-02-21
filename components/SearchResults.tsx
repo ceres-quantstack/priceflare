@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Product } from "@/types";
 import PriceHistoryChart from "./PriceHistoryChart";
 import PriceAlertModal from "./PriceAlertModal";
+import ComparisonTable from "./ComparisonTable";
 import { ExternalLink, Star, TrendingDown, Calendar, Bell, ChevronDown, ChevronUp } from "lucide-react";
 
 interface SearchResultsProps {
@@ -29,6 +30,9 @@ export default function SearchResults({ results }: SearchResultsProps) {
 
   return (
     <div className="space-y-8">
+      {/* Comparison Table */}
+      <ComparisonTable results={results} />
+
       {/* Lowest Price Section */}
       <div className="glass rounded-3xl p-6 border-2 border-green-400 shadow-lg">
         <div className="flex items-center gap-2 mb-4">
@@ -108,7 +112,7 @@ export default function SearchResults({ results }: SearchResultsProps) {
           return (
             <div
               key={product.id}
-              className={`glass rounded-3xl p-6 transition-all duration-200 hover:shadow-2xl hover:-translate-y-1 ${
+              className={`glass rounded-3xl p-6 transition-all duration-200 hover:shadow-2xl hover:-translate-y-1 result-stream-in ${
                 isLowest ? "ring-2 ring-green-400/50" : ""
               }`}
             >

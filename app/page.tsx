@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import SearchBar from "@/components/SearchBar";
 import SearchResults from "@/components/SearchResults";
 import SearchHistory from "@/components/SearchHistory";
+import TrendingProducts from "@/components/TrendingProducts";
 import { Product } from "@/types";
 
 // API Configuration
@@ -52,83 +53,191 @@ export default function Home() {
     progressTimers.current.forEach(clearTimeout);
     progressTimers.current = [];
 
-    // Staggered progress per retailer — each progresses at its own pace
-    RETAILERS.forEach((retailer) => {
-      const totalDuration = 1800 + retailer.delay; // 1.8-2.6s total per retailer
-      const steps = 20;
-      const stepDuration = totalDuration / steps;
+    // Try SSE streaming endpoint first
+    try {
+      const eventSource = new EventSource(`${API_URL}/api/search/stream?q=${encodeURIComponent(query)}`);
+      const receivedResults: Product[] = [];
+      const completedRetailers = new Set<string>();
 
-      for (let i = 1; i <= steps; i++) {
-        const timer = setTimeout(() => {
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          // Check if streaming is complete
+          if (data.done) {
+            eventSource.close();
+            setIsSearching(false);
+            setSearchProgress({});
+            return;
+          }
+
+          // Enrich and add the result
+          const apiProduct = data;
+          const details = PRODUCT_DETAILS[apiProduct.retailer] || PRODUCT_DETAILS["Amazon"];
+          const reviewIdx = receivedResults.length % REVIEW_SNIPPETS.length;
+          const priceToUse = apiProduct.price || getProductBasePrice(query);
+          const priceHistory = generatePriceHistory(priceToUse, query + apiProduct.retailer);
+          const avgPrice3Months = calculate3MonthAverage(priceHistory);
+          const isPriceFlare = apiProduct.price && apiProduct.price < avgPrice3Months * 0.95;
+
+          const enrichedProduct: Product = {
+            id: `${apiProduct.retailer.toLowerCase()}-${Date.now()}-${receivedResults.length}`,
+            name: apiProduct.productName,
+            retailer: apiProduct.retailer,
+            retailerEmoji: apiProduct.retailerEmoji,
+            retailerColor: apiProduct.retailerColor,
+            price: apiProduct.price || 0,
+            description: apiProduct.description || details.desc,
+            inStock: apiProduct.inStock !== false,
+            url: apiProduct.url,
+            reviews: hashStringToRange(query + apiProduct.retailer + "rev", 847, 9200),
+            rating: +(4.0 + hashStringToRange(query + apiProduct.retailer + "rate", 0, 10) / 10).toFixed(1),
+            pros: details.pros,
+            cons: details.cons.slice(0, 2 + (receivedResults.length % 2)),
+            reviewSnippet: REVIEW_SNIPPETS[reviewIdx],
+            inventory: hashStringToRange(query + apiProduct.retailer + "inv", 3, 180),
+            priceHistory,
+            isPriceFlare,
+          };
+
+          receivedResults.push(enrichedProduct);
+          completedRetailers.add(apiProduct.retailer);
+
+          // Update results immediately
+          setSearchResults([...receivedResults]);
+
+          // Mark retailer as complete (100%)
           setSearchProgress((prev) => ({
             ...prev,
-            [retailer.name]: Math.min((i / steps) * 100, 100),
+            [apiProduct.retailer]: 100,
           }));
-        }, retailer.delay + i * stepDuration);
-        progressTimers.current.push(timer);
-      }
-    });
+        } catch (parseError) {
+          console.error('Error parsing SSE data:', parseError);
+        }
+      };
 
-    // Fetch real data from API
-    try {
-      const response = await fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}`);
-      
-      if (!response.ok) {
-        throw new Error(`API returned ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      // Enrich API results with mock data for fields not provided by API
-      const enrichedResults = data.results.map((apiProduct: any, idx: number) => {
-        const details = PRODUCT_DETAILS[apiProduct.retailer] || PRODUCT_DETAILS["Amazon"];
-        const reviewIdx = (idx + query.length) % REVIEW_SNIPPETS.length;
-        const priceToUse = apiProduct.price || getProductBasePrice(query);
-        const priceHistory = generatePriceHistory(priceToUse, query + apiProduct.retailer);
-        const avgPrice3Months = calculate3MonthAverage(priceHistory);
-        const isPriceFlare = apiProduct.price && apiProduct.price < avgPrice3Months * 0.95;
+      eventSource.onerror = (error) => {
+        console.error('SSE error, falling back to regular API:', error);
+        eventSource.close();
+        
+        // Fallback to regular API
+        fallbackToRegularAPI(query);
+      };
 
-        return {
-          id: `${apiProduct.retailer.toLowerCase()}-${Date.now()}-${idx}`,
-          name: apiProduct.productName,
-          retailer: apiProduct.retailer,
-          retailerEmoji: apiProduct.retailerEmoji,
-          retailerColor: apiProduct.retailerColor,
-          price: apiProduct.price || 0,
-          description: apiProduct.description || details.desc,
-          inStock: apiProduct.inStock !== false,
-          url: apiProduct.url,
-          reviews: hashStringToRange(query + apiProduct.retailer + "rev", 847, 9200),
-          rating: +(4.0 + hashStringToRange(query + apiProduct.retailer + "rate", 0, 10) / 10).toFixed(1),
-          pros: details.pros,
-          cons: details.cons.slice(0, 2 + (idx % 2)),
-          reviewSnippet: REVIEW_SNIPPETS[reviewIdx],
-          inventory: hashStringToRange(query + apiProduct.retailer + "inv", 3, 180),
-          priceHistory,
-          isPriceFlare,
-        };
-      });
+      // Set searching progress for retailers that haven't completed yet
+      const progressInterval = setInterval(() => {
+        setSearchProgress((prev) => {
+          const updated = { ...prev };
+          RETAILERS.forEach((retailer) => {
+            if (!completedRetailers.has(retailer.name) && updated[retailer.name] < 95) {
+              updated[retailer.name] = Math.min((updated[retailer.name] || 0) + 5, 95);
+            }
+          });
+          return updated;
+        });
 
-      // Wait for progress bars to complete before showing results
-      const longestDuration = Math.max(...RETAILERS.map((r) => 1800 + r.delay * 2));
-      const completeTimer = setTimeout(() => {
-        setSearchResults(enrichedResults);
-        setIsSearching(false);
-        setSearchProgress({});
-      }, longestDuration);
-      progressTimers.current.push(completeTimer);
+        // Clear interval if all done
+        if (completedRetailers.size === RETAILERS.length) {
+          clearInterval(progressInterval);
+        }
+      }, 300);
+
+      // Cleanup timeout (30s max)
+      const timeoutTimer = setTimeout(() => {
+        eventSource.close();
+        clearInterval(progressInterval);
+        if (receivedResults.length > 0) {
+          setIsSearching(false);
+          setSearchProgress({});
+        } else {
+          fallbackToRegularAPI(query);
+        }
+      }, 30000);
+
+      progressTimers.current.push(timeoutTimer);
 
     } catch (error) {
-      console.error('API search failed, falling back to mock data:', error);
-      
-      // Fallback to mock data if API fails
-      const longestDuration = Math.max(...RETAILERS.map((r) => 1800 + r.delay * 2));
-      const completeTimer = setTimeout(() => {
-        setSearchResults(generateMockResults(query));
-        setIsSearching(false);
-        setSearchProgress({});
-      }, longestDuration);
-      progressTimers.current.push(completeTimer);
+      console.error('Failed to start SSE, falling back to regular API:', error);
+      fallbackToRegularAPI(query);
+    }
+
+    // Fallback function for regular API
+    async function fallbackToRegularAPI(query: string) {
+      try {
+        // Staggered progress animation
+        RETAILERS.forEach((retailer) => {
+          const totalDuration = 1800 + retailer.delay;
+          const steps = 20;
+          const stepDuration = totalDuration / steps;
+
+          for (let i = 1; i <= steps; i++) {
+            const timer = setTimeout(() => {
+              setSearchProgress((prev) => ({
+                ...prev,
+                [retailer.name]: Math.min((i / steps) * 100, 100),
+              }));
+            }, retailer.delay + i * stepDuration);
+            progressTimers.current.push(timer);
+          }
+        });
+
+        const response = await fetch(`${API_URL}/api/search?q=${encodeURIComponent(query)}`);
+        
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        // Enrich API results
+        const enrichedResults = data.results.map((apiProduct: any, idx: number) => {
+          const details = PRODUCT_DETAILS[apiProduct.retailer] || PRODUCT_DETAILS["Amazon"];
+          const reviewIdx = (idx + query.length) % REVIEW_SNIPPETS.length;
+          const priceToUse = apiProduct.price || getProductBasePrice(query);
+          const priceHistory = generatePriceHistory(priceToUse, query + apiProduct.retailer);
+          const avgPrice3Months = calculate3MonthAverage(priceHistory);
+          const isPriceFlare = apiProduct.price && apiProduct.price < avgPrice3Months * 0.95;
+
+          return {
+            id: `${apiProduct.retailer.toLowerCase()}-${Date.now()}-${idx}`,
+            name: apiProduct.productName,
+            retailer: apiProduct.retailer,
+            retailerEmoji: apiProduct.retailerEmoji,
+            retailerColor: apiProduct.retailerColor,
+            price: apiProduct.price || 0,
+            description: apiProduct.description || details.desc,
+            inStock: apiProduct.inStock !== false,
+            url: apiProduct.url,
+            reviews: hashStringToRange(query + apiProduct.retailer + "rev", 847, 9200),
+            rating: +(4.0 + hashStringToRange(query + apiProduct.retailer + "rate", 0, 10) / 10).toFixed(1),
+            pros: details.pros,
+            cons: details.cons.slice(0, 2 + (idx % 2)),
+            reviewSnippet: REVIEW_SNIPPETS[reviewIdx],
+            inventory: hashStringToRange(query + apiProduct.retailer + "inv", 3, 180),
+            priceHistory,
+            isPriceFlare,
+          };
+        });
+
+        const longestDuration = Math.max(...RETAILERS.map((r) => 1800 + r.delay * 2));
+        const completeTimer = setTimeout(() => {
+          setSearchResults(enrichedResults);
+          setIsSearching(false);
+          setSearchProgress({});
+        }, longestDuration);
+        progressTimers.current.push(completeTimer);
+
+      } catch (error) {
+        console.error('API search failed completely, using mock data:', error);
+        
+        const longestDuration = Math.max(...RETAILERS.map((r) => 1800 + r.delay * 2));
+        const completeTimer = setTimeout(() => {
+          setSearchResults(generateMockResults(query));
+          setIsSearching(false);
+          setSearchProgress({});
+        }, longestDuration);
+        progressTimers.current.push(completeTimer);
+      }
     }
   }, [searchHistory]);
 
@@ -174,29 +283,9 @@ export default function Home() {
       {/* Results */}
       {searchResults.length > 0 && <SearchResults results={searchResults} />}
 
-      {/* Empty State */}
+      {/* Trending Products (Empty State) */}
       {!isSearching && searchResults.length === 0 && searchHistory.length === 0 && (
-        <div className="glass rounded-3xl p-12 text-center">
-          <div className="text-6xl mb-4">🔍</div>
-          <h2 className="text-2xl font-semibold text-dark-blue mb-2">
-            Start Your Price Hunt
-          </h2>
-          <p className="text-gray-600 max-w-md mx-auto">
-            Search for any product to compare prices across Amazon, Walmart,
-            Target, Newegg, eBay, and Best Buy.
-          </p>
-          <div className="mt-8 flex flex-wrap justify-center gap-3">
-            {["iPhone 15 Pro", "Sony PlayStation 5", "Dyson V15 Detect", "AirPods Pro 2"].map((q) => (
-              <button
-                key={q}
-                onClick={() => handleSearch(q)}
-                className="glass px-4 py-2 rounded-full text-sm text-gray-700 hover:bg-sky-blue/20 transition-all duration-200"
-              >
-                {q}
-              </button>
-            ))}
-          </div>
-        </div>
+        <TrendingProducts onProductClick={handleSearch} />
       )}
 
       {/* Trusted Retailers Bar */}

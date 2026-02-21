@@ -244,7 +244,62 @@ async function searchRetailer(retailer, query) {
   };
 }
 
-// Main search endpoint
+// SSE streaming endpoint - sends results as they complete
+app.get('/api/search/stream', async (req, res) => {
+  const query = req.query.q;
+  if (!query || !query.trim()) {
+    return res.status(400).json({ error: 'Query parameter "q" is required' });
+  }
+
+  console.log(`[${new Date().toISOString()}] SSE Search: "${query}"`);
+
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  try {
+    // Search all retailers concurrently and stream results as they complete
+    const searchPromises = RETAILERS.map(async (retailer) => {
+      try {
+        const result = await searchRetailer(retailer, query);
+        // Send result immediately as SSE
+        res.write(`data: ${JSON.stringify(result)}\n\n`);
+      } catch (error) {
+        console.error(`[${retailer.name}] Stream error:`, error.message);
+        // Send fallback result
+        const fallback = {
+          retailer: retailer.name,
+          retailerEmoji: retailer.emoji,
+          retailerColor: retailer.color,
+          productName: query,
+          price: null,
+          url: retailer.searchUrl(query),
+          description: `Search on ${retailer.name}`,
+          inStock: true,
+          source: 'error',
+        };
+        res.write(`data: ${JSON.stringify(fallback)}\n\n`);
+      }
+    });
+
+    // Wait for all to complete
+    await Promise.all(searchPromises);
+
+    // Send completion signal
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+    console.log(`[${new Date().toISOString()}] SSE stream complete: "${query}"`);
+
+  } catch (error) {
+    console.error('SSE stream error:', error);
+    res.write(`data: ${JSON.stringify({ error: 'Stream error' })}\n\n`);
+    res.end();
+  }
+});
+
+// Main search endpoint (backwards compatible)
 app.get('/api/search', async (req, res) => {
   const query = req.query.q;
   if (!query || !query.trim()) {
