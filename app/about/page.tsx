@@ -1,100 +1,109 @@
 import { Metadata } from "next";
-import { TrendingDown, Shield, Zap, Heart } from "lucide-react";
+import { TrendingDown, Shield, Zap, Heart, Search, Clock } from "lucide-react";
+import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "About PriceFlare 🔥 - Smart Price Tracking",
-  description: "Learn about PriceFlare, the intelligent price tracking platform that helps you save money across major retailers.",
-  keywords: "about priceflare, price tracking platform, save money, deal finder",
+  title: "About PriceFlare",
+  description: "Learn about PriceFlare — the instant price comparison tool that searches across 5 major retailers in real time.",
+  keywords: "about priceflare, price comparison, save money, deal finder",
 };
 
 export default function AboutPage() {
   const features = [
     {
-      icon: TrendingDown,
-      title: "Real-Time Price Tracking",
-      description: "We monitor prices 24/7 across Amazon, Target, Newegg, eBay, and Best Buy so you don't have to.",
+      icon: Search,
+      title: "Live Price Search",
+      description: "We search Amazon, Target, Newegg, eBay, and Best Buy in real time — no cached or outdated data.",
     },
     {
       icon: Shield,
       title: "Privacy First",
-      description: "We don't store your personal data. All searches are anonymous and your email alerts are encrypted.",
+      description: "No accounts, no tracking, no data storage. Your searches stay on your device.",
     },
     {
       icon: Zap,
-      title: "Lightning Fast",
-      description: "Our optimized search engine scans thousands of products in seconds, with cached results for instant access.",
+      title: "Instant Results",
+      description: "Results stream in as each retailer responds. See prices in seconds, not minutes.",
     },
     {
-      icon: Heart,
-      title: "Made with Love",
-      description: "Built by deal hunters, for deal hunters. We know the pain of overpaying, so we made PriceFlare.",
+      icon: Clock,
+      title: "Always Current",
+      description: "Every search hits live retailer pages. Prices reflect what you'd actually pay right now.",
     },
   ];
 
   return (
-    <div className="container mx-auto px-4 py-12 max-w-5xl">
-      <div className="text-center mb-12">
-        <h1 className="text-5xl font-bold text-dark-blue mb-4">
-          About PriceFlare <span className="animate-fire-flicker inline-block">🔥</span>
+    <div className="container mx-auto px-4 py-12 max-w-3xl">
+      <div className="text-center mb-10">
+        <h1 className="text-3xl md:text-4xl font-bold text-surface-900 mb-3 tracking-tight">
+          About Price<span className="text-brand-500">Flare</span> 🔥
         </h1>
-        <p className="text-xl text-gray-700 max-w-2xl mx-auto">
-          We're on a mission to end impulse buying and help you snag the best deals on the internet.
+        <p className="text-base text-surface-500 max-w-lg mx-auto">
+          Stop opening 5 tabs to compare prices. We do it in one search.
         </p>
       </div>
 
-      <div className="glass rounded-3xl p-8 mb-12">
-        <h2 className="text-3xl font-bold text-dark-blue mb-6">Our Story</h2>
-        <div className="space-y-4 text-gray-700 leading-relaxed">
+      <div className="bg-white rounded-2xl border border-surface-200 shadow-card p-6 md:p-8 mb-8">
+        <h2 className="text-lg font-bold text-surface-800 mb-4">How It Works</h2>
+        <div className="space-y-3 text-surface-600 text-sm leading-relaxed">
           <p>
-            PriceFlare started in a college dorm room when our founder realized he'd overpaid for a laptop by $200 
-            because he didn't check all the retailers. <em>"There has to be a better way,"</em> he thought, 
-            while crying into his ramen noodles.
+            PriceFlare searches 5 major retailers simultaneously when you type in a product name.
+            We use a combination of direct APIs and intelligent web scraping to pull <strong>real, live prices</strong> — 
+            not cached data from a week ago.
           </p>
           <p>
-            After months of late-night coding sessions (fueled by questionable amounts of coffee ☕), 
-            PriceFlare was born. We built the platform we wished existed: a dead-simple way to compare 
-            prices across every major retailer, track price history, and get alerts when deals happen.
+            Results stream in as each retailer responds, so you see the fastest results first.
+            Our relevance engine uses phrase-matching and accessory detection to make sure you're
+            comparing the right products, not random accessories.
           </p>
           <p>
-            Today, PriceFlare helps thousands of smart shoppers save millions of dollars. We've tracked over 
-            100 million price changes, sent countless deal alerts, and prevented more buyer's remorse than 
-            we can count. And we're just getting started.
-          </p>
-          <p className="font-semibold text-dark-blue">
-            Because life's too short to overpay for stuff. 🔥
+            We don't store your searches, don't require an account, and don't sell your data.
+            It's just a search box that saves you money.
           </p>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6 mb-12">
+      <div className="grid sm:grid-cols-2 gap-4 mb-8">
         {features.map((feature, idx) => {
           const Icon = feature.icon;
           return (
-            <div key={idx} className="glass rounded-2xl p-6 hover:shadow-xl transition-all">
-              <Icon className="w-10 h-10 text-sky-blue mb-4" />
-              <h3 className="text-xl font-bold text-dark-blue mb-2">{feature.title}</h3>
-              <p className="text-gray-700">{feature.description}</p>
+            <div key={idx} className="bg-white rounded-xl border border-surface-200 p-5 hover:shadow-card-hover transition-shadow">
+              <div className="w-9 h-9 rounded-lg bg-brand-50 flex items-center justify-center mb-3">
+                <Icon className="w-5 h-5 text-brand-500" />
+              </div>
+              <h3 className="text-sm font-bold text-surface-800 mb-1">{feature.title}</h3>
+              <p className="text-xs text-surface-500 leading-relaxed">{feature.description}</p>
             </div>
           );
         })}
       </div>
 
-      <div className="glass rounded-3xl p-8 text-center">
-        <h2 className="text-2xl font-bold text-dark-blue mb-4">Fun Facts</h2>
-        <div className="grid md:grid-cols-3 gap-6">
-          <div>
-            <p className="text-4xl font-bold text-sky-blue mb-2">100M+</p>
-            <p className="text-gray-700">Price points tracked</p>
-          </div>
-          <div>
-            <p className="text-4xl font-bold text-sky-blue mb-2">$50M+</p>
-            <p className="text-gray-700">Saved by users</p>
-          </div>
-          <div>
-            <p className="text-4xl font-bold text-sky-blue mb-2">6</p>
-            <p className="text-gray-700">Major retailers monitored</p>
-          </div>
+      <div className="bg-white rounded-2xl border border-surface-200 shadow-card p-6 mb-8">
+        <h2 className="text-lg font-bold text-surface-800 mb-4">Retailers We Search</h2>
+        <div className="grid grid-cols-5 gap-3">
+          {[
+            { name: "Amazon", emoji: "📦" },
+            { name: "Target", emoji: "🎯" },
+            { name: "Newegg", emoji: "🥚" },
+            { name: "eBay", emoji: "🛒" },
+            { name: "Best Buy", emoji: "⚡" },
+          ].map((r) => (
+            <div key={r.name} className="text-center p-3 bg-surface-50 rounded-xl">
+              <span className="text-2xl block mb-1">{r.emoji}</span>
+              <span className="text-xs font-medium text-surface-600">{r.name}</span>
+            </div>
+          ))}
         </div>
+      </div>
+
+      <div className="text-center">
+        <Link
+          href="/"
+          className="inline-flex items-center gap-2 bg-brand-500 text-white px-6 py-3 rounded-xl font-semibold hover:bg-brand-600 active:scale-[0.97] transition-all text-sm"
+        >
+          <Search className="w-4 h-4" />
+          Start Comparing Prices
+        </Link>
       </div>
     </div>
   );

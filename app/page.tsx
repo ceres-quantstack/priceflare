@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import SearchBar from "@/components/SearchBar";
 import SearchResults from "@/components/SearchResults";
 import SearchHistory from "@/components/SearchHistory";
 import TrendingProducts from "@/components/TrendingProducts";
 import { Product } from "@/types";
+import { Search, RotateCcw } from "lucide-react";
 
 // API Configuration
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.100:8095';
@@ -32,7 +34,10 @@ export default function Home() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState<Record<string, number>>({});
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const [currentQuery, setCurrentQuery] = useState("");
+  const [noResults, setNoResults] = useState(false);
   const progressTimers = useRef<NodeJS.Timeout[]>([]);
+  const hasAutoSearched = useRef(false);
 
   useEffect(() => {
     const history = localStorage.getItem("priceflare_search_history");
@@ -41,8 +46,27 @@ export default function Home() {
     }
   }, []);
 
+  // Auto-search from URL params (shareable links)
+  useEffect(() => {
+    if (hasAutoSearched.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    if (q && q.trim()) {
+      hasAutoSearched.current = true;
+      handleSearch(q.trim());
+    }
+  }, []);
+
   const handleSearch = useCallback(async (query: string) => {
     if (!query.trim()) return;
+
+    setCurrentQuery(query);
+    setNoResults(false);
+
+    // Update URL without reload
+    const url = new URL(window.location.href);
+    url.searchParams.set("q", query);
+    window.history.replaceState({}, "", url.toString());
 
     // Update history
     const updatedHistory = [query, ...searchHistory.filter((h) => h !== query)].slice(0, 20);
@@ -73,6 +97,7 @@ export default function Home() {
             eventSource.close();
             setIsSearching(false);
             setSearchProgress({});
+            if (receivedResults.length === 0) setNoResults(true);
             return;
           }
 
@@ -161,8 +186,10 @@ export default function Home() {
           }));
 
         setSearchResults(products);
+        if (products.length === 0) setNoResults(true);
       } catch (e) {
         console.error('Search failed:', e);
+        setNoResults(true);
       }
       setIsSearching(false);
       setSearchProgress({});
@@ -206,6 +233,45 @@ export default function Home() {
           onClear={clearHistory}
           onSelect={handleSearch}
         />
+      )}
+
+      {/* Results Header */}
+      {(searchResults.length > 0 || noResults) && !isSearching && (
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-surface-500">
+            {searchResults.length > 0
+              ? `Showing ${searchResults.length} results for "${currentQuery}"`
+              : `No results found for "${currentQuery}"`
+            }
+          </p>
+          <button
+            onClick={() => {
+              setSearchResults([]);
+              setCurrentQuery("");
+              setNoResults(false);
+              const url = new URL(window.location.href);
+              url.searchParams.delete("q");
+              window.history.replaceState({}, "", url.toString());
+            }}
+            className="flex items-center gap-1.5 text-sm font-medium text-brand-500 hover:text-brand-600 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            New Search
+          </button>
+        </div>
+      )}
+
+      {/* No Results */}
+      {noResults && !isSearching && searchResults.length === 0 && (
+        <div className="bg-white rounded-2xl border border-surface-200 shadow-card p-8 text-center">
+          <span className="text-4xl block mb-3">🔍</span>
+          <p className="text-sm font-medium text-surface-700 mb-1">
+            No prices found for &ldquo;{currentQuery}&rdquo;
+          </p>
+          <p className="text-xs text-surface-400">
+            Try a more specific product name, or check the spelling.
+          </p>
+        </div>
       )}
 
       {/* Results */}

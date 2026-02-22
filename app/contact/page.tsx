@@ -1,73 +1,46 @@
 "use client";
 
 import { useState } from "react";
-import { Mail, Send, MessageSquare, AlertCircle } from "lucide-react";
+import { Send, MessageSquare, Mail, AlertCircle } from "lucide-react";
 
 export default function ContactPage() {
-  const [formData, setFormData] = useState({
-    subject: "",
-    message: "",
-    honeypot: "", // Spam trap
-  });
+  const [formData, setFormData] = useState({ subject: "", message: "", honeypot: "" });
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (formData.honeypot !== "") { setError(true); return; }
 
-    // Honeypot check
-    if (formData.honeypot !== "") {
-      setError(true);
-      return;
-    }
-
-    // Mailto fallback
-    const mailtoLink = `mailto:priceflare@gmail.com?subject=${encodeURIComponent(
-      formData.subject
-    )}&body=${encodeURIComponent(formData.message)}`;
-
-    window.location.href = mailtoLink;
-
+    window.location.href = `mailto:priceflare@gmail.com?subject=${encodeURIComponent(formData.subject)}&body=${encodeURIComponent(formData.message)}`;
     setSubmitted(true);
-    setTimeout(() => {
-      setFormData({ subject: "", message: "", honeypot: "" });
-      setSubmitted(false);
-    }, 5000);
+    setTimeout(() => { setFormData({ subject: "", message: "", honeypot: "" }); setSubmitted(false); }, 5000);
   };
 
   return (
-    <div className="container mx-auto px-4 py-12 max-w-3xl">
-      <div className="text-center mb-12">
-        <h1 className="text-5xl font-bold text-dark-blue mb-4">
-          Contact PriceFlare <span className="animate-fire-flicker inline-block">🔥</span>
+    <div className="container mx-auto px-4 py-12 max-w-2xl">
+      <div className="text-center mb-10">
+        <h1 className="text-3xl md:text-4xl font-bold text-surface-900 mb-3 tracking-tight">
+          Get in Touch <span className="text-2xl">💬</span>
         </h1>
-        <p className="text-xl text-gray-700">
-          Questions? Feedback? Found a bug? We're all ears! (Well, technically we're all code, but you get the idea.)
+        <p className="text-base text-surface-500">
+          Bug reports, feature ideas, or just saying hi — we read everything.
         </p>
       </div>
 
       {error && (
         <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-red-800 font-semibold">Spam detected</p>
-            <p className="text-red-700 text-sm">
-              Please try again. If you're a real human, contact us directly at priceflare@gmail.com
-            </p>
-          </div>
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-sm text-red-700">Something went wrong. Try emailing us directly at priceflare@gmail.com</p>
         </div>
       )}
 
       {!submitted ? (
-        <div className="glass rounded-3xl p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
+        <div className="bg-white rounded-2xl border border-surface-200 shadow-card p-6 md:p-8">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label 
-                htmlFor="subject"
-                className="block text-dark-blue font-semibold mb-2 flex items-center gap-2"
-              >
-                <MessageSquare className="w-5 h-5" />
-                Subject
+              <label htmlFor="subject" className="block text-sm font-semibold text-surface-700 mb-1.5 flex items-center gap-1.5">
+                <MessageSquare className="w-4 h-4 text-surface-400" /> Subject
               </label>
               <input
                 id="subject"
@@ -75,80 +48,51 @@ export default function ContactPage() {
                 value={formData.subject}
                 onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                 required
-                className="w-full glass px-4 py-3 rounded-xl outline-none focus:ring-2 focus:ring-sky-blue text-gray-800 placeholder-gray-500"
-                placeholder="What's on your mind?"
-                aria-required="true"
+                className="w-full bg-surface-50 border border-surface-200 px-4 py-2.5 rounded-xl outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-200 text-sm text-surface-800 placeholder-surface-400 transition-all"
+                placeholder="What's this about?"
               />
             </div>
 
             <div>
-              <label 
-                htmlFor="message"
-                className="block text-dark-blue font-semibold mb-2 flex items-center gap-2"
-              >
-                <Mail className="w-5 h-5" />
-                Message
+              <label htmlFor="message" className="block text-sm font-semibold text-surface-700 mb-1.5 flex items-center gap-1.5">
+                <Mail className="w-4 h-4 text-surface-400" /> Message
               </label>
               <textarea
                 id="message"
                 value={formData.message}
                 onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                 required
-                rows={8}
-                className="w-full glass px-4 py-3 rounded-xl outline-none focus:ring-2 focus:ring-sky-blue text-gray-800 placeholder-gray-500 resize-none"
-                placeholder="Tell us everything! Bug reports, feature requests, love letters, pizza recipes... we read it all."
-                aria-required="true"
+                rows={6}
+                className="w-full bg-surface-50 border border-surface-200 px-4 py-2.5 rounded-xl outline-none focus:border-brand-300 focus:ring-1 focus:ring-brand-200 text-sm text-surface-800 placeholder-surface-400 transition-all resize-none"
+                placeholder="Tell us what's on your mind..."
               />
             </div>
 
-            {/* Honeypot field - hidden from real users */}
+            {/* Honeypot */}
             <div className="hidden" aria-hidden="true">
-              <label htmlFor="website">Website</label>
-              <input
-                id="website"
-                type="text"
-                value={formData.honeypot}
-                onChange={(e) => setFormData({ ...formData, honeypot: e.target.value })}
-                tabIndex={-1}
-                autoComplete="off"
-              />
+              <input type="text" value={formData.honeypot} onChange={(e) => setFormData({ ...formData, honeypot: e.target.value })} tabIndex={-1} autoComplete="off" />
             </div>
 
             <button
               type="submit"
-              className="w-full bg-gradient-to-r from-sky-blue to-dark-blue text-white py-4 rounded-xl font-bold hover:shadow-lg transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center gap-2"
-              aria-label="Send message"
+              className="w-full bg-brand-500 text-white py-3 rounded-xl font-semibold hover:bg-brand-600 active:scale-[0.98] transition-all flex items-center justify-center gap-2 text-sm"
             >
-              <Send className="w-5 h-5" />
-              Send Message
+              <Send className="w-4 h-4" /> Send Message
             </button>
           </form>
 
-          <div className="mt-6 p-4 bg-blue-50 rounded-xl border border-blue-200">
-            <p className="text-sm text-gray-700">
-              <strong>Pro tip:</strong> If you're reporting a bug, include what you were searching for and
-              which browser you're using. Screenshots are chef's kiss 👌
-            </p>
-          </div>
-
-          <div className="mt-6 text-center text-gray-600 text-sm space-y-1">
-            <p>We typically respond within 24-48 hours.</p>
-            <p>Unless it's the weekend. Then we're probably hiking or eating tacos. 🌮</p>
-            <p className="text-xs text-gray-500 mt-4">
-              Direct email: <a href="mailto:priceflare@gmail.com" className="text-sky-blue hover:underline">priceflare@gmail.com</a>
-            </p>
-          </div>
+          <p className="mt-4 text-center text-xs text-surface-400">
+            Or email us directly at{" "}
+            <a href="mailto:priceflare@gmail.com" className="text-brand-500 hover:text-brand-600 transition-colors">
+              priceflare@gmail.com
+            </a>
+          </p>
         </div>
       ) : (
-        <div className="glass rounded-3xl p-12 text-center">
-          <div className="text-6xl mb-4">✅</div>
-          <h2 className="text-3xl font-bold text-dark-blue mb-2">Message Sent!</h2>
-          <p className="text-gray-700 mb-4">
-            Thanks for reaching out! Your email client should open now.
-          </p>
-          <p className="text-sm text-gray-600">
-            We'll get back to you faster than a Black Friday doorbuster.
-          </p>
+        <div className="bg-white rounded-2xl border border-surface-200 shadow-card p-10 text-center">
+          <span className="text-5xl block mb-3">✉️</span>
+          <h2 className="text-xl font-bold text-surface-900 mb-2">Message Sent!</h2>
+          <p className="text-sm text-surface-500">Your email client should open. We'll get back to you soon.</p>
         </div>
       )}
     </div>
