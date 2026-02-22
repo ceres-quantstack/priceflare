@@ -207,60 +207,76 @@ async function extractWalmart(page, query) {
 }
 
 async function extractTarget(page, query) {
-  // Target fires multiple APIs on search:
-  // 1. product_summary (1st call) — real products but often NO prices
-  // 2. product_summary (2nd/3rd) — recommendations/accessories WITH prices
-  // 3. plp_search_v2 — accessories with prices
-  //
-  // Strategy: Collect ALL product data from all API responses,
-  // then pick the best match using relevance + accessory filtering.
+  // Strategy: Intercept Target's API responses from the search page,
+  // pick the best product using smart relevance scoring,
+  // then fetch exact price from Redsky API using the TCIN (no extra page nav needed).
   
   return new Promise(async (resolve) => {
     let resolved = false;
-    const allProducts = []; // {title, price, url, tcin, source}
-    let apiResponseCount = 0;
+    const allProducts = []; // {title, price, url, tcin, source, position}
+    let summaryCallCount = 0;
     
-    // Accessory keywords — these indicate the product is FOR the queried item, not the item itself
-    const ACCESSORY_WORDS = ['case', 'cover', 'strap', 'sleeve', 'holder', 'stand', 'mount',
-      'charger', 'cable', 'adapter', 'screen protector', 'skin', 'pouch', 'dock', 'cradle',
-      'replacement tip', 'ear tip', 'ear hook', 'clip', 'lanyard', 'keychain',
-      'kit', 'accessory', 'accessories', 'protector', 'film', 'cleaning', 'silicone tip',
-      'protection plan', 'warranty', 'applecare'];
+    // --- Accessory detection ---
+    const ACCESSORY_PATTERNS = [
+      /\bcases?\b/i, /\bcovers?\b/i, /\bstraps?\b/i, /\bsleeves?\b/i, /\bholders?\b/i,
+      /\bstands?\b/i, /\bmounts?\b/i, /\bchargers?\b/i, /\bcables?\b/i, /\badapters?\b/i,
+      /\bscreen protector\b/i, /\bskins?\b/i, /\bpouch/i, /\bdocks?\b/i, /\bcradle\b/i,
+      /\bkits?\b/i, /\baccessor/i, /\bfilms?\b/i, /\bcleaning\b/i, /\btips?\b/i,
+      /\bprotection plan\b/i, /\bwarranty\b/i, /\bapplecare\b/i, /\btempered glass\b/i,
+      /\blanyard\b/i, /\bkeychain\b/i, /\bclips?\b/i, /\bhooks?\b/i, /\bweave\b/i,
+    ];
     
     function isAccessory(title) {
       const lower = title.toLowerCase();
-      // If query itself contains an accessory word, don't filter it
       const queryLower = query.toLowerCase();
-      for (const word of ACCESSORY_WORDS) {
-        if (lower.includes(word) && !queryLower.includes(word)) return true;
+      for (const pattern of ACCESSORY_PATTERNS) {
+        const match = lower.match(pattern);
+        if (match && !queryLower.includes(match[0].toLowerCase())) return true;
       }
       return false;
     }
     
-    function extractProductsFromSummary(json, source) {
-      const summaries = json?.data?.product_summaries || [];
-      for (const p of summaries) {
-        const title = p?.item?.product_description?.title || '';
-        const price = p?.price?.current_retail || p?.price?.reg_retail || null;
-        const tcin = p?.tcin || p?.item?.tcin || '';
-        const url = p?.item?.enrichment?.buy_url || 
-                    (tcin ? `https://www.target.com/p/-/A-${tcin}` : null);
-        if (title) {
-          allProducts.push({ title: title.substring(0, 200), price, url, tcin, source });
-        }
+    // --- Smart relevance scoring for Target ---
+    function targetRelevance(title, q) {
+      const tLower = title.toLowerCase();
+      const qLower = q.toLowerCase();
+      const qWords = qLower.split(/\s+/).filter(w => w.length > 1);
+      if (qWords.length === 0) return 0;
+      
+      // Count word matches
+      let matched = 0;
+      for (const w of qWords) {
+        if (tLower.includes(w)) matched++;
       }
+      let score = matched / qWords.length;
+      
+      // Exact substring match gets a bonus
+      if (tLower.includes(qLower)) score = Math.max(score, 1.0);
+      
+      // "for <product>" pattern = accessory (e.g. "Case for iPhone 16 Pro")
+      // Apply AFTER scoring so it reduces even exact matches
+      if (/\bfor\b/i.test(tLower) && !qLower.includes('for')) score *= 0.15;
+      
+      return score;
     }
     
-    function extractProductsFromSearch(json, source) {
-      const products = json?.data?.search?.products || [];
-      for (const p of products) {
-        const title = p?.item?.product_description?.title || p?.title || '';
-        const price = p?.price?.current_retail || p?.price?.reg_retail || null;
-        const tcin = p?.item?.tcin || p?.tcin || '';
-        const url = p?.item?.enrichment?.buy_url || 
-                    (tcin ? `https://www.target.com/p/-/A-${tcin}` : null);
-        if (title) {
-          allProducts.push({ title: title.substring(0, 200), price, url, tcin, source });
+    function extractProducts(json, source) {
+      const lists = [
+        json?.data?.product_summaries,
+        json?.data?.search?.products,
+      ];
+      for (const products of lists) {
+        if (!Array.isArray(products) || products.length === 0) continue;
+        for (let i = 0; i < products.length; i++) {
+          const p = products[i];
+          const title = p?.item?.product_description?.title || p?.title || '';
+          const price = p?.price?.current_retail || p?.price?.current_retail_min || p?.price?.reg_retail || null;
+          const tcin = p?.tcin || p?.item?.tcin || '';
+          const url = p?.item?.enrichment?.buy_url || 
+                      (tcin ? `https://www.target.com/p/-/A-${tcin}` : null);
+          if (title && title.length > 3) {
+            allProducts.push({ title: title.substring(0, 200), price, url, tcin, source, position: i });
+          }
         }
       }
     }
@@ -268,118 +284,112 @@ async function extractTarget(page, query) {
     page.on('response', async (response) => {
       if (resolved) return;
       const url = response.url();
-      
       if (url.includes('product_summary') || url.includes('plp_search_v2')) {
         try {
-          const text = await response.text();
-          const json = JSON.parse(text);
-          apiResponseCount++;
-          
+          const json = JSON.parse(await response.text());
           if (url.includes('product_summary')) {
-            extractProductsFromSummary(json, `summary-${apiResponseCount}`);
+            summaryCallCount++;
+            extractProducts(json, `summary-${summaryCallCount}`);
           } else {
-            extractProductsFromSearch(json, `search-${apiResponseCount}`);
+            extractProducts(json, 'search');
           }
         } catch {}
       }
     });
     
-    // Navigate
     await page.goto(`https://www.target.com/s?searchTerm=${encodeURIComponent(query)}`, {
       waitUntil: 'domcontentloaded', timeout: 15000
     }).catch(() => {});
     
-    // Wait for API responses to come in
-    await page.waitForTimeout(8000);
+    await page.waitForTimeout(6000);
     
     if (!resolved) {
       resolved = true;
       
       if (allProducts.length === 0) {
-        console.log('[Target] No products found from any API');
+        console.log('[Target] No products from API');
         resolve(null);
         return;
       }
       
-      console.log(`[Target] Collected ${allProducts.length} products from ${apiResponseCount} API calls`);
+      console.log(`[Target] Collected ${allProducts.length} products`);
       
-      // Score and rank all products
-      const scored = allProducts.map(p => {
-        let score = relevanceScore(p.title, query);
+      // Deduplicate by TCIN, keeping the first occurrence
+      const seen = new Set();
+      const unique = allProducts.filter(p => {
+        if (!p.tcin || seen.has(p.tcin)) return false;
+        seen.add(p.tcin);
+        return true;
+      });
+      
+      // Score products
+      const scored = unique.map(p => {
+        let score = targetRelevance(p.title, query);
+        if (isAccessory(p.title)) score *= 0.05;
         
-        // Penalize accessories heavily
-        if (isAccessory(p.title)) score *= 0.1;
-        
-        // Bonus: title starts with query words (e.g. "Apple AirPods Pro" for "airpods pro")
-        // This helps the actual product beat accessories that mention it
-        const titleWords = p.title.toLowerCase().split(/\s+/);
-        const queryWords = query.toLowerCase().split(/\s+/);
-        const startsWithQuery = queryWords.every((qw, i) => 
-          titleWords.some((tw, ti) => tw.includes(qw) && ti < queryWords.length + 2));
-        if (startsWithQuery && score >= 0.5) score += 0.2;
-        
-        // Small bonus for having a price (but not enough to beat relevance)
-        if (p.price && p.price > 1) score += 0.02;
+        // Bonus for appearing early in summary-1 (Target's own ranking)
+        if (p.source === 'summary-1' && p.position < 5) score += 0.1;
         
         return { ...p, score };
       });
       
-      // Sort by score descending
       scored.sort((a, b) => b.score - a.score);
       
-      // Log top candidates
       for (const s of scored.slice(0, 5)) {
-        console.log(`[Target]   ${s.score.toFixed(2)} ${s.price ? '$'+s.price : 'no$'} "${s.title.substring(0,80)}" (${s.source})`);
+        console.log(`[Target]   ${s.score.toFixed(3)} ${s.price ? '$'+s.price : 'no$'} "${s.title.substring(0,80)}" (${s.source}#${s.position})`);
       }
       
       const best = scored[0];
-      if (!best || best.score < 0.1) {
+      if (!best || best.score < 0.4) {
+        console.log(`[Target] No relevant product (best score: ${best?.score?.toFixed(3) || 0})`);
         resolve(null);
         return;
       }
       
-      // If best match has no price, try to find price from another product with same TCIN
+      // --- Get price via Redsky API (fast, no page navigation) ---
       if (!best.price && best.tcin) {
-        const withPrice = scored.find(p => p.tcin === best.tcin && p.price);
-        if (withPrice) best.price = withPrice.price;
+        try {
+          console.log(`[Target] Fetching price from Redsky API for TCIN ${best.tcin}...`);
+          const redskyUrl = `https://redsky.target.com/redsky_aggregations/v1/web/pdp_client_v1?key=9f36aeafbe60771e321a7cc95a78140772ab3e96&tcin=${best.tcin}&pricing_store_id=3991&has_pricing_store_id=true`;
+          const redskyPage = await page.context().newPage();
+          const resp = await redskyPage.goto(redskyUrl, { timeout: 8000 }).catch(() => null);
+          if (resp) {
+            const json = JSON.parse(await resp.text());
+            const priceObj = json?.data?.product?.price;
+            const price = priceObj?.current_retail || priceObj?.current_retail_min || priceObj?.reg_retail;
+            if (price) {
+              console.log(`[Target] Redsky price: $${price}`);
+              best.price = price;
+            } else {
+              console.log(`[Target] Redsky returned no usable price: ${JSON.stringify(priceObj)}`);
+            }
+          }
+          await redskyPage.close();
+        } catch (e) {
+          console.log(`[Target] Redsky API error: ${e.message}`);
+        }
       }
       
-      // If still no price, try fetching the product page directly
+      // Fallback: PDP DOM scrape if Redsky failed
       if (!best.price && best.url) {
         try {
-          console.log(`[Target] No price for best match, fetching product page: ${best.url}`);
+          console.log(`[Target] Fallback: scraping PDP at ${best.url}`);
           await page.goto(best.url, { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
           await page.waitForTimeout(3000);
-          
           const pdpPrice = await page.evaluate(() => {
-            // Try multiple price selectors on the PDP
-            const selectors = [
-              '[data-test="product-price"]',
-              '[data-test="product-price-sale"]',
-              'span[class*="CurrentPrice"]',
-              'span[data-test="product-price"]',
-            ];
-            for (const sel of selectors) {
-              const el = document.querySelector(sel);
-              if (el) {
-                const match = el.innerText?.match(/\$([\d,]+\.?\d*)/);
-                if (match) return parseFloat(match[1].replace(/,/g, ''));
-              }
+            const el = document.querySelector('[data-test="product-price"]');
+            if (el) {
+              const m = el.innerText?.match(/\$([\d,]+\.?\d*)/);
+              if (m) return parseFloat(m[1].replace(/,/g, ''));
             }
-            // Generic: find first $ amount on page that looks like a product price
-            const allText = document.body.innerText;
-            const prices = [...allText.matchAll(/\$([\d,]+\.\d{2})/g)].map(m => parseFloat(m[1].replace(/,/g, '')));
-            // Filter reasonable prices
-            const reasonable = prices.filter(p => p > 5 && p < 5000);
-            return reasonable.length > 0 ? reasonable[0] : null;
+            return null;
           });
-          
           if (pdpPrice) {
-            console.log(`[Target] Got price from PDP: $${pdpPrice}`);
+            console.log(`[Target] PDP price: $${pdpPrice}`);
             best.price = pdpPrice;
           }
         } catch (e) {
-          console.log(`[Target] PDP price fetch failed: ${e.message}`);
+          console.log(`[Target] PDP scrape error: ${e.message}`);
         }
       }
       
