@@ -85,7 +85,12 @@ const limiter = rateLimit({ windowMs: 60 * 1000, max: 10, message: { error: 'Rat
 app.use('/api', limiter);
 app.use(express.json());
 
-app.get('/health', (req, res) => res.json({ status: 'ok' }));
+app.get('/health', (req, res) => res.json({ 
+  status: 'ok', 
+  cache: { entries: searchCache.size, ttlMinutes: CACHE_TTL_MS / 60000 },
+  uptime: Math.floor(process.uptime()) + 's',
+}));
+app.post('/api/cache/clear', (req, res) => { searchCache.clear(); res.json({ cleared: true }); });
 
 // Shared browser instance (reuse across requests)
 let browser = null;
@@ -293,7 +298,9 @@ async function extractNewegg(page) {
     const priceMatch = priceText.match(/([\d,]+)/);
     const priceSup = priceEl?.querySelector('sup')?.textContent || '';
     const price = priceMatch ? parseFloat(priceMatch[1].replace(/,/g, '') + (priceSup ? `.${priceSup}` : '')) : null;
-    return { title, price, url };
+    const imgEl = item.querySelector('.item-img img, a.item-img img');
+    const image = imgEl?.src || null;
+    return { title, price, url, image };
   });
   return product;
 }
@@ -332,7 +339,11 @@ async function extractEbay(page) {
       const isBuyNow = text.includes('Buy It Now');
       const url = link.href.split('?')[0];
       
-      return { title: title.substring(0, 200), price, url, isBuyNow };
+      // Get image
+      const imgEl = li.querySelector('img');
+      const image = imgEl?.src || null;
+      
+      return { title: title.substring(0, 200), price, url, isBuyNow, image };
     }
     
     return null;
@@ -364,7 +375,11 @@ async function extractBestBuy(page) {
       }
     }
     
-    return { title: title?.substring(0, 200), price, url };
+    // Get image
+    const imgEl = item.querySelector('img.product-image, img[class*="product"], .shop-sku-list-item img, picture img');
+    const image = imgEl?.src || null;
+    
+    return { title: title?.substring(0, 200), price, url, image };
   });
   return product;
 }
