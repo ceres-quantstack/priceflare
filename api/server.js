@@ -11,6 +11,31 @@ const app = express();
 const PORT = 8095;
 const CHROMIUM_PATH = '/snap/bin/chromium';
 
+// --- Result Cache ---
+// Cache search results for 10 minutes to avoid redundant scraping
+const searchCache = new Map(); // key: normalized query, value: { results, timestamp }
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function getCached(query) {
+  const key = query.toLowerCase().trim();
+  const entry = searchCache.get(key);
+  if (entry && (Date.now() - entry.timestamp) < CACHE_TTL_MS) {
+    return entry;
+  }
+  if (entry) searchCache.delete(key); // expired
+  return null;
+}
+
+function setCache(query, results) {
+  const key = query.toLowerCase().trim();
+  searchCache.set(key, { results, timestamp: Date.now() });
+  // Prune old entries (keep max 100)
+  if (searchCache.size > 100) {
+    const oldest = [...searchCache.entries()].sort((a, b) => a[1].timestamp - b[1].timestamp)[0];
+    if (oldest) searchCache.delete(oldest[0]);
+  }
+}
+
 // --- Relevance Scoring ---
 // Compare product title to search query to filter irrelevant results
 function relevanceScore(title, query) {
@@ -124,7 +149,11 @@ async function extractAmazon(page) {
       const frac = priceFrac?.textContent || '00';
       price = parseFloat(`${whole}.${frac}`);
     }
-    return { title, price, url: href };
+    // Get product image
+    const imgEl = item.querySelector('img.s-image');
+    const image = imgEl?.src || null;
+    
+    return { title, price, url: href, image };
   });
   return product;
 }
@@ -206,7 +235,8 @@ async function extractTarget(page, query) {
       // Bonus for early position (Target's own relevance)
       if (i < 3) score += 0.1;
       
-      return { title: title.substring(0, 200), price, url, tcin, score, position: i };
+      const image = p?.item?.enrichment?.images?.primary_image_url || null;
+      return { title: title.substring(0, 200), price, url, tcin, score, position: i, image };
     });
     
     scored.sort((a, b) => b.score - a.score);
@@ -402,7 +432,7 @@ async function searchRetailer(retailer, query) {
       if (price && price > 5000) price = null;
       if (price && price < 1) price = null;
       
-      return {
+      const result = {
         retailer: retailer.name,
         retailerEmoji: retailer.emoji,
         retailerColor: retailer.color,
@@ -413,6 +443,8 @@ async function searchRetailer(retailer, query) {
         inStock: true,
         source: price ? 'live' : 'live-noPrice',
       };
+      if (product.image) result.image = product.image;
+      return result;
     }
   } catch (err) {
     console.error(`[${retailer.name}] Error:`, err.message);
@@ -440,6 +472,22 @@ app.get('/api/search/stream', async (req, res) => {
     return res.status(400).json({ error: 'Query parameter "q" is required' });
   }
 
+  // Check cache first
+  const cached = getCached(query);
+  if (cached) {
+    console.log(`[${new Date().toISOString()}] SSE Cache hit: "${query}" (${cached.results.length} results)`);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+    for (const r of cached.results) {
+      res.write(`data: ${JSON.stringify({ ...r, source: r.source + '-cached' })}\n\n`);
+    }
+    res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
+    res.end();
+    return;
+  }
+
   console.log(`[${new Date().toISOString()}] SSE Search: "${query}"`);
 
   // Set SSE headers
@@ -449,15 +497,15 @@ app.get('/api/search/stream', async (req, res) => {
   res.flushHeaders();
 
   try {
+    const allResults = [];
     // Search all retailers concurrently and stream results as they complete
     const searchPromises = RETAILERS.map(async (retailer) => {
       try {
         const result = await searchRetailer(retailer, query);
-        // Send result immediately as SSE
+        allResults.push(result);
         res.write(`data: ${JSON.stringify(result)}\n\n`);
       } catch (error) {
         console.error(`[${retailer.name}] Stream error:`, error.message);
-        // Send fallback result
         const fallback = {
           retailer: retailer.name,
           retailerEmoji: retailer.emoji,
@@ -469,14 +517,16 @@ app.get('/api/search/stream', async (req, res) => {
           inStock: true,
           source: 'error',
         };
+        allResults.push(fallback);
         res.write(`data: ${JSON.stringify(fallback)}\n\n`);
       }
     });
 
-    // Wait for all to complete
     await Promise.all(searchPromises);
 
-    // Send completion signal
+    // Cache results
+    if (allResults.some(r => r.price)) setCache(query, allResults);
+
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
     console.log(`[${new Date().toISOString()}] SSE stream complete: "${query}"`);
@@ -495,19 +545,31 @@ app.get('/api/search', async (req, res) => {
     return res.status(400).json({ error: 'Query parameter "q" is required' });
   }
 
+  // Check cache
+  const cached = getCached(query);
+  if (cached) {
+    console.log(`[${new Date().toISOString()}] Cache hit: "${query}"`);
+    const products = cached.results.map(r => ({ ...r, source: r.source + '-cached' }));
+    return res.json({
+      query, results: products, timestamp: new Date().toISOString(),
+      elapsed: '0ms (cached)',
+      sources: {
+        live: products.filter(p => p.source.includes('live')).length,
+        withPrice: products.filter(p => p.price).length,
+        fallback: products.filter(p => p.source.includes('fallback') || p.source.includes('error')).length,
+      }
+    });
+  }
+
   console.log(`[${new Date().toISOString()}] Search: "${query}"`);
   const startTime = Date.now();
 
   try {
-    // Search all retailers in parallel (but limit concurrency to 3 to avoid memory issues)
-    const results = [];
-    for (let i = 0; i < RETAILERS.length; i += 3) {
-      const batch = RETAILERS.slice(i, i + 3);
-      const batchResults = await Promise.allSettled(
-        batch.map(r => searchRetailer(r, query))
-      );
-      results.push(...batchResults);
-    }
+    // Search retailers: Target runs via HTTP (no browser), others use Playwright
+    // Run all concurrently — Target won't consume browser resources
+    const results = await Promise.allSettled(
+      RETAILERS.map(r => searchRetailer(r, query))
+    );
 
     const products = results.map((r, idx) => {
       if (r.status === 'fulfilled') return r.value;
@@ -531,6 +593,9 @@ app.get('/api/search', async (req, res) => {
         fallback: products.filter(p => p.source === 'fallback' || p.source === 'error').length,
       }
     };
+
+    // Cache if we got any prices
+    if (products.some(p => p.price)) setCache(query, products);
 
     console.log(`[${new Date().toISOString()}] "${query}" → ${response.sources.withPrice} prices in ${elapsed}ms`);
     res.json(response);

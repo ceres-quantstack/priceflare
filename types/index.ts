@@ -9,4 +9,5 @@ export interface Product {
   inStock: boolean;
   url: string;
   source?: string;
+  image?: string;
 }

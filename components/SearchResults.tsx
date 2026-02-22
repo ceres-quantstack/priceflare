@@ -121,7 +121,11 @@ export default function SearchResults({ results }: SearchResultsProps) {
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-3xl flex-shrink-0">{product.retailerEmoji}</span>
+                    {product.image ? (
+                      <img src={product.image} alt="" className="w-12 h-12 object-contain rounded-lg flex-shrink-0 bg-white p-1" loading="lazy" onError={(e) => { (e.target as HTMLImageElement).replaceWith(Object.assign(document.createElement('span'), { className: 'text-3xl flex-shrink-0', textContent: product.retailerEmoji })); }} />
+                    ) : (
+                      <span className="text-3xl flex-shrink-0">{product.retailerEmoji}</span>
+                    )}
                     <div className="min-w-0">
                       <p className="font-semibold text-dark-blue truncate text-sm md:text-base">
                         {product.name}

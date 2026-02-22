@@ -87,6 +87,7 @@ export default function Home() {
             inStock: data.inStock !== false,
             url: data.url,
             source: data.source,
+            image: data.image,
           };
 
           receivedResults.push(product);
@@ -151,6 +152,7 @@ export default function Home() {
           inStock: r.inStock !== false,
           url: r.url,
           source: r.source,
+          image: r.image,
         }));
 
         setSearchResults(products);
