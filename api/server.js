@@ -44,29 +44,65 @@ function relevanceScore(title, query) {
   const queryLower = query.toLowerCase();
   const queryWords = queryLower.split(/\s+/).filter(w => w.length > 1);
   
-  // Exact match
+  // Accessory detection — penalize titles that are clearly accessories/cases/covers for the product
+  const accessoryWords = ['case', 'cover', 'screen protector', 'charger', 'cable', 'adapter', 'stand', 'mount', 'skin', 'decal', 'sticker', 'holder', 'grip', 'strap', 'bag', 'pouch', 'sleeve', 'dock', 'tempered glass', 'film', 'kit'];
+  const titleWords = titleLower.split(/\s+/);
+  for (const acc of accessoryWords) {
+    if (titleLower.includes(acc) && !queryLower.includes(acc)) {
+      // Title contains an accessory keyword not in the query — likely an accessory
+      return 0.15;
+    }
+  }
+
+  // Exact phrase match — best possible score
   if (titleLower.includes(queryLower)) return 1.0;
+  
+  // Check for consecutive word sequences (phrase proximity)
+  // e.g. "nintendo switch 2" should match "Nintendo Switch 2 Console" but NOT "Garfield 2-in-1... Nintendo Switch"
+  let longestConsecutive = 0;
+  for (let start = 0; start < queryWords.length; start++) {
+    for (let end = queryWords.length; end > start; end--) {
+      const phrase = queryWords.slice(start, end).join(' ');
+      if (titleLower.includes(phrase)) {
+        longestConsecutive = Math.max(longestConsecutive, end - start);
+        break;
+      }
+    }
+  }
   
   // Word overlap
   let matched = 0;
   for (const word of queryWords) {
     if (titleLower.includes(word)) matched++;
   }
-  return queryWords.length > 0 ? matched / queryWords.length : 0;
+  
+  const wordScore = queryWords.length > 0 ? matched / queryWords.length : 0;
+  const phraseScore = queryWords.length > 0 ? longestConsecutive / queryWords.length : 0;
+  
+  // For multi-word queries, require high phrase match
+  // The full query (or nearly all of it) must appear as consecutive words in the title
+  if (queryWords.length >= 2) {
+    if (longestConsecutive < queryWords.length) {
+      // Not an exact phrase match — penalize heavily
+      // Only pass if the product title is clearly about the queried product
+      return wordScore * 0.25;
+    }
+  }
+  return phraseScore * 0.6 + wordScore * 0.4;
 }
 
-// Minimum relevance threshold — product must match at least 50% of query words
-const MIN_RELEVANCE = 0.5;
+// Minimum relevance threshold — product must match well as a phrase, not just scattered words
+const MIN_RELEVANCE = 0.6;
 
 const RETAILERS = [
   { name: 'Amazon', emoji: '📦', color: '#FF9900',
-    searchUrl: (q) => `https://www.amazon.com/s?k=${encodeURIComponent(q)}`,
+    searchUrl: (q) => `https://www.amazon.com/s?k=${encodeURIComponent('"' + q + '"')}`,
     parse: ($page) => extractAmazon($page) },
   { name: 'Target', emoji: '🎯', color: '#CC0000',
     searchUrl: (q) => `https://www.target.com/s?searchTerm=${encodeURIComponent(q)}`,
     parse: ($page, q) => extractTarget($page, q) },
   { name: 'Newegg', emoji: '🥚', color: '#FF6600',
-    searchUrl: (q) => `https://www.newegg.com/p/pl?d=${encodeURIComponent(q)}`,
+    searchUrl: (q) => `https://www.newegg.com/p/pl?d=${encodeURIComponent('"' + q + '"')}`,
     parse: ($page) => extractNewegg($page) },
   { name: 'eBay', emoji: '🛒', color: '#E53238',
     searchUrl: (q) => `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(q)}`,
@@ -191,14 +227,15 @@ async function extractTarget(page, query) {
   }
   
   try {
-    const searchUrl = `https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2?key=${REDSKY_KEY}&channel=WEB&count=10&default_purchasability_filter=true&keyword=${encodeURIComponent(query)}&offset=0&page=%2Fs%2F${encodeURIComponent(query)}&pricing_store_id=${STORE_ID}&store_ids=${STORE_ID}&visitor_id=pf_${Date.now()}`;
+    const exactQuery = `"${query}"`;
+    const searchUrl = `https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2?key=${REDSKY_KEY}&channel=WEB&count=20&default_purchasability_filter=true&keyword=${encodeURIComponent(exactQuery)}&offset=0&page=%2Fs%2F${encodeURIComponent(exactQuery)}&pricing_store_id=${STORE_ID}&store_ids=${STORE_ID}&visitor_id=pf_${Date.now()}`;
     
     const resp = await fetch(searchUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'application/json',
       },
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(20000),
     });
     
     if (!resp.ok) {
@@ -256,19 +293,22 @@ async function extractTarget(page, query) {
       return null;
     }
     
-    // If no price from search, fetch via PDP API
-    if (!best.price && best.tcin) {
+    // Always verify/fetch price via PDP API for best accuracy
+    if (best.tcin) {
       try {
         const pdpUrl = `https://redsky.target.com/redsky_aggregations/v1/web/pdp_client_v1?key=${REDSKY_KEY}&tcin=${best.tcin}&pricing_store_id=${STORE_ID}&has_pricing_store_id=true`;
         const pdpResp = await fetch(pdpUrl, {
           headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
-          signal: AbortSignal.timeout(8000),
+          signal: AbortSignal.timeout(15000),
         });
         if (pdpResp.ok) {
           const pdpJson = await pdpResp.json();
           const priceObj = pdpJson?.data?.product?.price;
-          best.price = priceObj?.current_retail || priceObj?.current_retail_min || priceObj?.reg_retail || null;
-          if (best.price) console.log(`[Target] PDP price: $${best.price}`);
+          const pdpPrice = priceObj?.current_retail || priceObj?.current_retail_min || priceObj?.reg_retail || null;
+          if (pdpPrice) {
+            console.log(`[Target] PDP price: $${pdpPrice}${best.price && pdpPrice !== best.price ? ` (search had $${best.price})` : ''}`);
+            best.price = pdpPrice; // PDP price is most accurate
+          }
         }
       } catch (e) {
         console.log(`[Target] PDP fetch error: ${e.message}`);
@@ -314,6 +354,7 @@ async function extractEbay(page) {
     // Find li elements that contain product info + price
     const lis = document.querySelectorAll('li');
     const queryLower = searchQuery.toLowerCase();
+    const results = [];
     
     for (const li of lis) {
       const text = li.innerText?.trim();
@@ -343,45 +384,62 @@ async function extractEbay(page) {
       const imgEl = li.querySelector('img');
       const image = imgEl?.src || null;
       
-      return { title: title.substring(0, 200), price, url, isBuyNow, image };
+      results.push({ title: title.substring(0, 200), price, url, isBuyNow, image });
+      if (results.length >= 8) break;
     }
     
-    return null;
+    return results;
   }, page.url().includes('_nkw=') ? decodeURIComponent(page.url().split('_nkw=')[1].split('&')[0]) : '');
-  return product;
+  return product; // Returns array — searchRetailer picks best match
 }
 
 async function extractBestBuy(page) {
   await page.waitForSelector('.product-list-item', { timeout: 8000 }).catch(() => {});
   
-  const product = await page.evaluate(() => {
-    const item = document.querySelector('.product-list-item');
-    if (!item) return null;
+  const products = await page.evaluate(() => {
+    const items = document.querySelectorAll('.product-list-item');
+    const results = [];
     
-    // Title: look for product link
-    const titleEl = item.querySelector('a[href*="/product/"], a[href*="/site/"]');
-    const title = titleEl?.innerText?.trim();
-    let url = titleEl?.href;
-    if (url && !url.startsWith('http')) url = 'https://www.bestbuy.com' + url;
-    
-    // Price: find spans containing $ price pattern
-    let price = null;
-    const spans = item.querySelectorAll('span');
-    for (const span of spans) {
-      const text = span.innerText?.trim();
-      if (text && /^\$[\d,]+\.?\d*$/.test(text)) {
-        price = parseFloat(text.replace(/[$,]/g, ''));
-        break;
+    for (const item of items) {
+      if (results.length >= 8) break;
+      
+      // Title: prefer the named product link class, fall back to href-based selectors
+      let titleEl = item.querySelector('a.product-list-item-link');
+      if (!titleEl || !titleEl.innerText?.trim()) {
+        titleEl = item.querySelector('a[href*="/product/"], a[href*="/site/"]');
       }
+      // Skip links with empty text (image-only links)
+      if (titleEl && !titleEl.innerText?.trim()) {
+        const allLinks = item.querySelectorAll('a[href*="/product/"], a[href*="/site/"]');
+        for (const link of allLinks) {
+          if (link.innerText?.trim()) { titleEl = link; break; }
+        }
+      }
+      const title = titleEl?.innerText?.trim();
+      if (!title) continue;
+      let url = titleEl?.href;
+      if (url && !url.startsWith('http')) url = 'https://www.bestbuy.com' + url;
+      
+      // Price: find spans containing $ price pattern
+      let price = null;
+      const spans = item.querySelectorAll('span');
+      for (const span of spans) {
+        const text = span.innerText?.trim();
+        if (text && /^\$[\d,]+\.?\d*$/.test(text)) {
+          price = parseFloat(text.replace(/[$,]/g, ''));
+          break;
+        }
+      }
+      
+      // Get image
+      const imgEl = item.querySelector('img.product-image, img[class*="product"], .shop-sku-list-item img, picture img');
+      const image = imgEl?.src || null;
+      
+      results.push({ title: title.substring(0, 200), price, url, image });
     }
-    
-    // Get image
-    const imgEl = item.querySelector('img.product-image, img[class*="product"], .shop-sku-list-item img, picture img');
-    const image = imgEl?.src || null;
-    
-    return { title: title?.substring(0, 200), price, url, image };
+    return results;
   });
-  return product;
+  return products; // Returns array — searchRetailer will pick best match
 }
 
 // Search a single retailer using headless browser
@@ -425,9 +483,10 @@ async function searchRetailer(retailer, query) {
           product = candidate;
         }
       }
-      // If no relevant match, fall back to first result
-      if (!product && rawResult.length > 0) {
-        product = rawResult[0];
+      // If no relevant match, skip this retailer entirely
+      if (!product) {
+        console.log(`[${retailer.name}] No relevant match for "${query}" — skipping`);
+        return null;
       }
     } else {
       product = rawResult;
@@ -437,15 +496,16 @@ async function searchRetailer(retailer, query) {
     if (product && product.title) {
       const score = relevanceScore(product.title, query);
       if (score < MIN_RELEVANCE) {
-        console.log(`[${retailer.name}] Low relevance (${score.toFixed(2)}): "${product.title}" for query "${query}"`);
-        // Still return it but mark as low relevance — better than nothing
+        console.log(`[${retailer.name}] Low relevance (${score.toFixed(2)}): "${product.title}" for query "${query}" — excluded`);
+        return null;
       }
     }
     
-    if (product && (product.price || product.url)) {
+    if (product && product.price) {
       let price = product.price;
-      if (price && price > 5000) price = null;
-      if (price && price < 1) price = null;
+      if (price > 5000) price = null;
+      if (price < 1) price = null;
+      if (!price) return null; // No valid price — skip
       
       const result = {
         retailer: retailer.name,
@@ -517,30 +577,20 @@ app.get('/api/search/stream', async (req, res) => {
     const searchPromises = RETAILERS.map(async (retailer) => {
       try {
         const result = await searchRetailer(retailer, query);
-        allResults.push(result);
-        res.write(`data: ${JSON.stringify(result)}\n\n`);
+        if (result && result.price) {
+          allResults.push(result);
+          res.write(`data: ${JSON.stringify(result)}\n\n`);
+        }
       } catch (error) {
         console.error(`[${retailer.name}] Stream error:`, error.message);
-        const fallback = {
-          retailer: retailer.name,
-          retailerEmoji: retailer.emoji,
-          retailerColor: retailer.color,
-          productName: query,
-          price: null,
-          url: retailer.searchUrl(query),
-          description: `Search on ${retailer.name}`,
-          inStock: true,
-          source: 'error',
-        };
-        allResults.push(fallback);
-        res.write(`data: ${JSON.stringify(fallback)}\n\n`);
+        // Skip failed retailers — don't send error entries to frontend
       }
     });
 
     await Promise.all(searchPromises);
 
     // Cache results
-    if (allResults.some(r => r.price)) setCache(query, allResults);
+    if (allResults.length > 0) setCache(query, allResults);
 
     res.write(`data: ${JSON.stringify({ done: true })}\n\n`);
     res.end();
@@ -588,13 +638,8 @@ app.get('/api/search', async (req, res) => {
 
     const products = results.map((r, idx) => {
       if (r.status === 'fulfilled') return r.value;
-      const ret = RETAILERS[idx];
-      return {
-        retailer: ret.name, retailerEmoji: ret.emoji, retailerColor: ret.color,
-        productName: query, price: null, url: ret.searchUrl(query),
-        description: `Search on ${ret.name}`, inStock: true, source: 'error',
-      };
-    });
+      return null; // skip failed retailers
+    }).filter(p => p !== null);
 
     const elapsed = Date.now() - startTime;
     const response = {

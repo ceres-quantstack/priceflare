@@ -90,6 +90,9 @@ export default function Home() {
             image: data.image,
           };
 
+          // Only include results that have actual price data
+          if (!data.price || data.price <= 0) return;
+
           receivedResults.push(product);
           completedRetailers.add(data.retailer);
           setSearchResults([...receivedResults]);
@@ -141,19 +144,21 @@ export default function Home() {
         if (!response.ok) throw new Error(`${response.status}`);
         const data = await response.json();
 
-        const products: Product[] = data.results.map((r: any, idx: number) => ({
-          id: `${r.retailer.toLowerCase().replace(/\s/g, '-')}-${Date.now()}-${idx}`,
-          name: r.productName,
-          retailer: r.retailer,
-          retailerEmoji: r.retailerEmoji,
-          retailerColor: r.retailerColor,
-          price: r.price || 0,
-          description: RETAILER_DETAILS[r.retailer] || "",
-          inStock: r.inStock !== false,
-          url: r.url,
-          source: r.source,
-          image: r.image,
-        }));
+        const products: Product[] = data.results
+          .filter((r: any) => r.price && r.price > 0)
+          .map((r: any, idx: number) => ({
+            id: `${r.retailer.toLowerCase().replace(/\s/g, '-')}-${Date.now()}-${idx}`,
+            name: r.productName,
+            retailer: r.retailer,
+            retailerEmoji: r.retailerEmoji,
+            retailerColor: r.retailerColor,
+            price: r.price,
+            description: RETAILER_DETAILS[r.retailer] || "",
+            inStock: r.inStock !== false,
+            url: r.url,
+            source: r.source,
+            image: r.image,
+          }));
 
         setSearchResults(products);
       } catch (e) {
@@ -174,13 +179,14 @@ export default function Home() {
       <a href="#main-content" className="skip-to-content">Skip to content</a>
       
       {/* Hero */}
-      <div className="text-center mb-10 mt-6">
-        <h1 className="text-4xl md:text-5xl font-bold text-dark-blue mb-3">
-          PriceFlare{" "}
-          <span className="animate-fire-flicker inline-block">🔥</span>
+      <div className="text-center mb-8 mt-4">
+        <h1 className="text-3xl md:text-4xl font-bold text-surface-900 mb-2 tracking-tight">
+          Find the best price,{" "}
+          <span className="text-brand-500">instantly</span>
+          <span className="animate-fire-flicker inline-block ml-1">🔥</span>
         </h1>
-        <p className="text-lg text-gray-600 max-w-xl mx-auto">
-          Compare real prices across 5 major retailers instantly.
+        <p className="text-base text-surface-500 max-w-md mx-auto">
+          Compare real prices across 5 major retailers in seconds.
         </p>
       </div>
 
@@ -213,12 +219,12 @@ export default function Home() {
       {/* Trusted Retailers */}
       {!isSearching && searchResults.length === 0 && (
         <div className="mt-12 text-center">
-          <p className="text-sm text-gray-400 uppercase tracking-wider mb-4 font-medium">
+          <p className="text-xs text-surface-400 uppercase tracking-widest mb-4 font-semibold">
             Comparing prices across
           </p>
-          <div className="flex flex-wrap justify-center gap-6 opacity-60">
+          <div className="flex flex-wrap justify-center gap-4">
             {RETAILERS.map((r) => (
-              <span key={r.name} className="text-lg font-semibold" style={{ color: r.color }}>
+              <span key={r.name} className="text-sm font-medium text-surface-500 bg-white border border-surface-200 px-3 py-1.5 rounded-full">
                 {r.emoji} {r.name}
               </span>
             ))}

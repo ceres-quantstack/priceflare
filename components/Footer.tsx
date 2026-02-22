@@ -1,70 +1,48 @@
 "use client";
 
 import Link from "next/link";
-import { Heart } from "lucide-react";
 
 export default function Footer() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="glass-dark mt-16 border-t border-sky-blue/20">
-      <div className="container mx-auto px-4 py-8 max-w-7xl">
-        {/* Main Footer Content */}
+    <footer className="border-t border-surface-200 mt-16 bg-white">
+      <div className="container mx-auto px-4 py-10 max-w-5xl">
         <div className="grid md:grid-cols-4 gap-8 mb-8">
           {/* Brand */}
           <div>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-2xl font-bold text-white">PriceFlare</span>
-              <span className="text-2xl animate-fire-flicker">🔥</span>
+            <div className="flex items-center gap-1.5 mb-3">
+              <span className="text-lg font-bold text-surface-900">Price<span className="text-brand-500">Flare</span></span>
+              <span className="text-lg">🔥</span>
             </div>
-            <p className="text-gray-300 text-sm leading-relaxed">
-              Smart price tracking across major retailers. Never overpay again.
+            <p className="text-sm text-surface-500 leading-relaxed">
+              Real-time price comparison across major retailers.
             </p>
           </div>
 
-          {/* Quick Links */}
+          {/* Links */}
           <div>
-            <h3 className="text-white font-semibold mb-4">Quick Links</h3>
+            <h3 className="text-xs font-semibold text-surface-800 uppercase tracking-wider mb-3">Pages</h3>
             <ul className="space-y-2">
-              <li>
-                <Link
-                  href="/"
-                  className="text-gray-300 hover:text-white transition-colors text-sm"
-                >
-                  Search Products
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/alerts"
-                  className="text-gray-300 hover:text-white transition-colors text-sm"
-                >
-                  Price Alerts
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/about"
-                  className="text-gray-300 hover:text-white transition-colors text-sm"
-                >
-                  About Us
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/contact"
-                  className="text-gray-300 hover:text-white transition-colors text-sm"
-                >
-                  Contact
-                </Link>
-              </li>
+              {[
+                { name: "Search", href: "/" },
+                { name: "Alerts", href: "/alerts" },
+                { name: "About", href: "/about" },
+                { name: "Contact", href: "/contact" },
+              ].map((link) => (
+                <li key={link.name}>
+                  <Link href={link.href} className="text-sm text-surface-500 hover:text-surface-800 transition-colors">
+                    {link.name}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
 
           {/* Retailers */}
           <div>
-            <h3 className="text-white font-semibold mb-4">We Track</h3>
-            <ul className="space-y-2 text-sm text-gray-300">
+            <h3 className="text-xs font-semibold text-surface-800 uppercase tracking-wider mb-3">We Track</h3>
+            <ul className="space-y-2 text-sm text-surface-500">
               <li>📦 Amazon</li>
               <li>🎯 Target</li>
               <li>🥚 Newegg</li>
@@ -73,41 +51,33 @@ export default function Footer() {
             </ul>
           </div>
 
-          {/* Privacy & Trust */}
+          {/* Trust */}
           <div>
-            <h3 className="text-white font-semibold mb-4">Our Promise</h3>
-            <div className="space-y-3">
-              <div className="flex items-start gap-2">
-                <span className="text-green-400 text-lg">✓</span>
-                <p className="text-gray-300 text-sm">Privacy-focused</p>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="text-green-400 text-lg">✓</span>
-                <p className="text-gray-300 text-sm">No data stored</p>
-              </div>
-              <div className="flex items-start gap-2">
-                <span className="text-green-400 text-lg">✓</span>
-                <p className="text-gray-300 text-sm">Always free</p>
-              </div>
+            <h3 className="text-xs font-semibold text-surface-800 uppercase tracking-wider mb-3">Our Promise</h3>
+            <div className="space-y-2">
+              {["Privacy-focused", "No data stored", "Always free"].map((item) => (
+                <div key={item} className="flex items-center gap-2">
+                  <span className="w-4 h-4 rounded-full bg-green-100 flex items-center justify-center text-[10px] text-green-600">✓</span>
+                  <p className="text-sm text-surface-500">{item}</p>
+                </div>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* Bottom Bar */}
-        <div className="pt-6 border-t border-sky-blue/20 flex flex-col md:flex-row items-center justify-between gap-4">
-          <p className="text-gray-400 text-sm">
+        <div className="pt-6 border-t border-surface-100 flex flex-col md:flex-row items-center justify-between gap-3">
+          <p className="text-xs text-surface-400">
             © {currentYear} PriceFlare. All rights reserved.
           </p>
-          <p className="text-gray-400 text-sm flex items-center gap-2">
-            Made with <Heart className="w-4 h-4 text-red-400 fill-red-400" /> for smart shoppers
+          <p className="text-xs text-surface-400">
+            Made for smart shoppers ❤️
           </p>
         </div>
 
-        {/* Disclaimer */}
-        <div className="mt-6 p-4 bg-white/5 rounded-xl">
-          <p className="text-xs text-gray-400 leading-relaxed">
-            <strong>Disclaimer:</strong> PriceFlare is an independent price comparison service. We are not affiliated with Amazon, Target, Newegg, eBay, or Best Buy. 
-            Product prices and availability are subject to change. Always verify current pricing on the retailer's website before purchase.
+        <div className="mt-4 p-3 bg-surface-50 rounded-lg">
+          <p className="text-[11px] text-surface-400 leading-relaxed">
+            <strong>Disclaimer:</strong> PriceFlare is independent and not affiliated with any retailer.
+            Prices are subject to change — always verify on the retailer&apos;s website before purchase.
           </p>
         </div>
       </div>
