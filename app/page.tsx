@@ -13,8 +13,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://192.168.1.100:8095';
 // Retailer configs — single source of truth
 const RETAILERS = [
   { name: "Amazon", emoji: "📦", color: "#FF9900", url: "https://www.amazon.com", delay: 400 },
-  { name: "Walmart", emoji: "🏪", color: "#0071CE", url: "https://www.walmart.com", delay: 600 },
-  { name: "Target", emoji: "🎯", color: "#CC0000", url: "https://www.target.com", delay: 800 },
+  { name: "Target", emoji: "🎯", color: "#CC0000", url: "https://www.target.com", delay: 600 },
   { name: "Newegg", emoji: "🥚", color: "#FF6600", url: "https://www.newegg.com", delay: 500 },
   { name: "eBay", emoji: "🛒", color: "#E53238", url: "https://www.ebay.com", delay: 700 },
   { name: "Best Buy", emoji: "⚡", color: "#0046BE", url: "https://www.bestbuy.com", delay: 550 },
@@ -312,7 +311,6 @@ export default function Home() {
 // Realistic product name variations by retailer
 const PRODUCT_NAME_VARIATIONS: Record<string, (query: string) => string> = {
   Amazon: (q) => `${q} - Amazon Exclusive Bundle`,
-  Walmart: (q) => `${q} + Free Shipping`,
   Target: (q) => `${q} (RedCard Members Save 5%)`,
   Newegg: (q) => `${q} - Tech Specialist Edition`,
   eBay: (q) => `${q} - Certified Refurbished`,
@@ -324,11 +322,6 @@ const PRODUCT_DETAILS: Record<string, { desc: string; pros: string[]; cons: stri
     desc: "Prime eligible with free 2-day shipping. Fulfilled by Amazon with their A-to-Z Guarantee. Easy returns within 30 days, no questions asked.",
     pros: ["Prime 2-day shipping included", "30-day easy returns", "A-to-Z Guarantee protection", "Often bundled with exclusive accessories"],
     cons: ["Price can fluctuate frequently", "May be third-party seller", "Packaging sometimes excessive"],
-  },
-  Walmart: {
-    desc: "Free next-day delivery on orders $35+. Available for same-day pickup at your local Walmart store. Price match guarantee available.",
-    pros: ["Free next-day delivery $35+", "Same-day store pickup option", "Walmart+ member exclusive savings", "Excellent price match guarantee"],
-    cons: ["Limited premium brand selection", "Customer service response times vary", "Website can be cluttered"],
   },
   Target: {
     desc: "Order with same-day Drive Up, Order Pickup, or delivery via Shipt. RedCard members save an extra 5% on every purchase automatically.",

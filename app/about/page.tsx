@@ -12,7 +12,7 @@ export default function AboutPage() {
     {
       icon: TrendingDown,
       title: "Real-Time Price Tracking",
-      description: "We monitor prices 24/7 across Amazon, Walmart, Target, Newegg, eBay, and Best Buy so you don't have to.",
+      description: "We monitor prices 24/7 across Amazon, Target, Newegg, eBay, and Best Buy so you don't have to.",
     },
     {
       icon: Shield,

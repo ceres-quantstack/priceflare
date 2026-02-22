@@ -66,7 +66,6 @@ export default function Footer() {
             <h3 className="text-white font-semibold mb-4">We Track</h3>
             <ul className="space-y-2 text-sm text-gray-300">
               <li>📦 Amazon</li>
-              <li>🏪 Walmart</li>
               <li>🎯 Target</li>
               <li>🥚 Newegg</li>
               <li>🛒 eBay</li>
@@ -107,7 +106,7 @@ export default function Footer() {
         {/* Disclaimer */}
         <div className="mt-6 p-4 bg-white/5 rounded-xl">
           <p className="text-xs text-gray-400 leading-relaxed">
-            <strong>Disclaimer:</strong> PriceFlare is an independent price comparison service. We are not affiliated with Amazon, Walmart, Target, Newegg, eBay, or Best Buy. 
+            <strong>Disclaimer:</strong> PriceFlare is an independent price comparison service. We are not affiliated with Amazon, Target, Newegg, eBay, or Best Buy. 
             Product prices and availability are subject to change. Always verify current pricing on the retailer's website before purchase.
           </p>
         </div>

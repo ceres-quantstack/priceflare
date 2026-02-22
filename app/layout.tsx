@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 
 const siteUrl = "https://priceflare.com";
 const siteName = "PriceFlare";
-const siteDescription = "Track product prices across Amazon, Walmart, Target, Newegg, eBay, and Best Buy. Get instant price alerts and never overpay again.";
+const siteDescription = "Track product prices across Amazon, Target, Newegg, eBay, and Best Buy. Get instant price alerts and never overpay again.";
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
@@ -18,7 +18,6 @@ export const metadata: Metadata = {
     "price tracking",
     "price comparison",
     "Amazon deals",
-    "Walmart prices",
     "Target sales",
     "product price history",
     "price alerts",

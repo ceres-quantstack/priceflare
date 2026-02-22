@@ -12,7 +12,6 @@ interface SearchBarProps {
 
 const RETAILERS = [
   { name: "Amazon", emoji: "📦", color: "#FF9900" },
-  { name: "Walmart", emoji: "🏪", color: "#0071CE" },
   { name: "Target", emoji: "🎯", color: "#CC0000" },
   { name: "Newegg", emoji: "🥚", color: "#FF6600" },
   { name: "eBay", emoji: "🛒", color: "#E53238" },
