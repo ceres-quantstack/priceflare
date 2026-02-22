@@ -8,8 +8,8 @@ interface ComparisonTableProps {
 }
 
 export default function ComparisonTable({ results }: ComparisonTableProps) {
-  // Exclude Target from best-deal calculations (price accuracy unreliable)
-  const EXCLUDED_FROM_BEST_DEAL = ['Target'];
+  // Retailers excluded from best-deal calculations (add names here if price data is unreliable)
+  const EXCLUDED_FROM_BEST_DEAL: string[] = [];
 
   // Sort results by price (lowest first)
   const sortedResults = [...results].sort((a, b) => {

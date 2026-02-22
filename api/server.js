@@ -207,195 +207,121 @@ async function extractWalmart(page, query) {
 }
 
 async function extractTarget(page, query) {
-  // Strategy: Intercept Target's API responses from the search page,
-  // pick the best product using smart relevance scoring,
-  // then fetch exact price from Redsky API using the TCIN (no extra page nav needed).
+  // Direct Redsky API — no browser needed, fast and accurate.
+  // Uses Target's public API key + a physical store ID for pricing.
+  const REDSKY_KEY = '9f36aeafbe60771e321a7cc95a78140772ab3e96';
+  const STORE_ID = '1375'; // Physical Target store (NYC area)
   
-  return new Promise(async (resolve) => {
-    let resolved = false;
-    const allProducts = []; // {title, price, url, tcin, source, position}
-    let summaryCallCount = 0;
-    
-    // --- Accessory detection ---
-    const ACCESSORY_PATTERNS = [
-      /\bcases?\b/i, /\bcovers?\b/i, /\bstraps?\b/i, /\bsleeves?\b/i, /\bholders?\b/i,
-      /\bstands?\b/i, /\bmounts?\b/i, /\bchargers?\b/i, /\bcables?\b/i, /\badapters?\b/i,
-      /\bscreen protector\b/i, /\bskins?\b/i, /\bpouch/i, /\bdocks?\b/i, /\bcradle\b/i,
-      /\bkits?\b/i, /\baccessor/i, /\bfilms?\b/i, /\bcleaning\b/i, /\btips?\b/i,
-      /\bprotection plan\b/i, /\bwarranty\b/i, /\bapplecare\b/i, /\btempered glass\b/i,
-      /\blanyard\b/i, /\bkeychain\b/i, /\bclips?\b/i, /\bhooks?\b/i, /\bweave\b/i,
-    ];
-    
-    function isAccessory(title) {
-      const lower = title.toLowerCase();
-      const queryLower = query.toLowerCase();
-      for (const pattern of ACCESSORY_PATTERNS) {
-        const match = lower.match(pattern);
-        if (match && !queryLower.includes(match[0].toLowerCase())) return true;
-      }
-      return false;
+  const ACCESSORY_PATTERNS = [
+    /\bcases?\b/i, /\bcovers?\b/i, /\bstraps?\b/i, /\bsleeves?\b/i, /\bholders?\b/i,
+    /\bstands?\b/i, /\bmounts?\b/i, /\bchargers?\b/i, /\bcables?\b/i, /\badapters?\b/i,
+    /\bscreen protector\b/i, /\bskins?\b/i, /\bpouch/i, /\bdocks?\b/i, /\bcradle\b/i,
+    /\bkits?\b/i, /\baccessor/i, /\bfilms?\b/i, /\bcleaning\b/i, /\btips?\b/i,
+    /\bprotection plan\b/i, /\bwarranty\b/i, /\bapplecare\b/i, /\btempered glass\b/i,
+    /\blanyard\b/i, /\bkeychain\b/i, /\bclips?\b/i, /\bhooks?\b/i,
+  ];
+  
+  function isAccessory(title) {
+    const lower = title.toLowerCase();
+    const queryLower = query.toLowerCase();
+    for (const pattern of ACCESSORY_PATTERNS) {
+      const match = lower.match(pattern);
+      if (match && !queryLower.includes(match[0].toLowerCase())) return true;
     }
+    return false;
+  }
+  
+  try {
+    const searchUrl = `https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2?key=${REDSKY_KEY}&channel=WEB&count=10&default_purchasability_filter=true&keyword=${encodeURIComponent(query)}&offset=0&page=%2Fs%2F${encodeURIComponent(query)}&pricing_store_id=${STORE_ID}&store_ids=${STORE_ID}&visitor_id=pf_${Date.now()}`;
     
-    // --- Smart relevance scoring for Target ---
-    function targetRelevance(title, q) {
-      const tLower = title.toLowerCase();
-      const qLower = q.toLowerCase();
-      const qWords = qLower.split(/\s+/).filter(w => w.length > 1);
-      if (qWords.length === 0) return 0;
-      
-      // Count word matches
-      let matched = 0;
-      for (const w of qWords) {
-        if (tLower.includes(w)) matched++;
-      }
-      let score = matched / qWords.length;
-      
-      // Exact substring match gets a bonus
-      if (tLower.includes(qLower)) score = Math.max(score, 1.0);
-      
-      // "for <product>" pattern = accessory (e.g. "Case for iPhone 16 Pro")
-      // Apply AFTER scoring so it reduces even exact matches
-      if (/\bfor\b/i.test(tLower) && !qLower.includes('for')) score *= 0.15;
-      
-      return score;
-    }
-    
-    function extractProducts(json, source) {
-      const lists = [
-        json?.data?.product_summaries,
-        json?.data?.search?.products,
-      ];
-      for (const products of lists) {
-        if (!Array.isArray(products) || products.length === 0) continue;
-        for (let i = 0; i < products.length; i++) {
-          const p = products[i];
-          const title = p?.item?.product_description?.title || p?.title || '';
-          const price = p?.price?.current_retail || p?.price?.current_retail_min || p?.price?.reg_retail || null;
-          const tcin = p?.tcin || p?.item?.tcin || '';
-          const url = p?.item?.enrichment?.buy_url || 
-                      (tcin ? `https://www.target.com/p/-/A-${tcin}` : null);
-          if (title && title.length > 3) {
-            allProducts.push({ title: title.substring(0, 200), price, url, tcin, source, position: i });
-          }
-        }
-      }
-    }
-    
-    page.on('response', async (response) => {
-      if (resolved) return;
-      const url = response.url();
-      if (url.includes('product_summary') || url.includes('plp_search_v2')) {
-        try {
-          const json = JSON.parse(await response.text());
-          if (url.includes('product_summary')) {
-            summaryCallCount++;
-            extractProducts(json, `summary-${summaryCallCount}`);
-          } else {
-            extractProducts(json, 'search');
-          }
-        } catch {}
-      }
+    const resp = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+      },
+      signal: AbortSignal.timeout(10000),
     });
     
-    await page.goto(`https://www.target.com/s?searchTerm=${encodeURIComponent(query)}`, {
-      waitUntil: 'domcontentloaded', timeout: 15000
-    }).catch(() => {});
-    
-    await page.waitForTimeout(6000);
-    
-    if (!resolved) {
-      resolved = true;
-      
-      if (allProducts.length === 0) {
-        console.log('[Target] No products from API');
-        resolve(null);
-        return;
-      }
-      
-      console.log(`[Target] Collected ${allProducts.length} products`);
-      
-      // Deduplicate by TCIN, keeping the first occurrence
-      const seen = new Set();
-      const unique = allProducts.filter(p => {
-        if (!p.tcin || seen.has(p.tcin)) return false;
-        seen.add(p.tcin);
-        return true;
-      });
-      
-      // Score products
-      const scored = unique.map(p => {
-        let score = targetRelevance(p.title, query);
-        if (isAccessory(p.title)) score *= 0.05;
-        
-        // Bonus for appearing early in summary-1 (Target's own ranking)
-        if (p.source === 'summary-1' && p.position < 5) score += 0.1;
-        
-        return { ...p, score };
-      });
-      
-      scored.sort((a, b) => b.score - a.score);
-      
-      for (const s of scored.slice(0, 5)) {
-        console.log(`[Target]   ${s.score.toFixed(3)} ${s.price ? '$'+s.price : 'no$'} "${s.title.substring(0,80)}" (${s.source}#${s.position})`);
-      }
-      
-      const best = scored[0];
-      if (!best || best.score < 0.4) {
-        console.log(`[Target] No relevant product (best score: ${best?.score?.toFixed(3) || 0})`);
-        resolve(null);
-        return;
-      }
-      
-      // --- Get price via Redsky API (fast, no page navigation) ---
-      if (!best.price && best.tcin) {
-        try {
-          console.log(`[Target] Fetching price from Redsky API for TCIN ${best.tcin}...`);
-          const redskyUrl = `https://redsky.target.com/redsky_aggregations/v1/web/pdp_client_v1?key=9f36aeafbe60771e321a7cc95a78140772ab3e96&tcin=${best.tcin}&pricing_store_id=3991&has_pricing_store_id=true`;
-          const redskyPage = await page.context().newPage();
-          const resp = await redskyPage.goto(redskyUrl, { timeout: 8000 }).catch(() => null);
-          if (resp) {
-            const json = JSON.parse(await resp.text());
-            const priceObj = json?.data?.product?.price;
-            const price = priceObj?.current_retail || priceObj?.current_retail_min || priceObj?.reg_retail;
-            if (price) {
-              console.log(`[Target] Redsky price: $${price}`);
-              best.price = price;
-            } else {
-              console.log(`[Target] Redsky returned no usable price: ${JSON.stringify(priceObj)}`);
-            }
-          }
-          await redskyPage.close();
-        } catch (e) {
-          console.log(`[Target] Redsky API error: ${e.message}`);
-        }
-      }
-      
-      // Fallback: PDP DOM scrape if Redsky failed
-      if (!best.price && best.url) {
-        try {
-          console.log(`[Target] Fallback: scraping PDP at ${best.url}`);
-          await page.goto(best.url, { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
-          await page.waitForTimeout(3000);
-          const pdpPrice = await page.evaluate(() => {
-            const el = document.querySelector('[data-test="product-price"]');
-            if (el) {
-              const m = el.innerText?.match(/\$([\d,]+\.?\d*)/);
-              if (m) return parseFloat(m[1].replace(/,/g, ''));
-            }
-            return null;
-          });
-          if (pdpPrice) {
-            console.log(`[Target] PDP price: $${pdpPrice}`);
-            best.price = pdpPrice;
-          }
-        } catch (e) {
-          console.log(`[Target] PDP scrape error: ${e.message}`);
-        }
-      }
-      
-      resolve([best]);
+    if (!resp.ok) {
+      console.log(`[Target] Redsky search returned ${resp.status}`);
+      return null;
     }
-  });
+    
+    const json = await resp.json();
+    const products = json?.data?.search?.products || [];
+    
+    if (products.length === 0) {
+      console.log('[Target] No products from Redsky search');
+      return null;
+    }
+    
+    // Score and rank products
+    const scored = products.map((p, i) => {
+      const title = p?.item?.product_description?.title || '';
+      const price = p?.price?.current_retail || p?.price?.current_retail_min || p?.price?.reg_retail || null;
+      const tcin = p?.tcin || '';
+      const url = p?.item?.enrichment?.buy_url || (tcin ? `https://www.target.com/p/-/A-${tcin}` : null);
+      
+      // Relevance score
+      const tLower = title.toLowerCase();
+      const qLower = query.toLowerCase();
+      const qWords = qLower.split(/\s+/).filter(w => w.length > 1);
+      let score = 0;
+      if (qWords.length > 0) {
+        let matched = 0;
+        for (const w of qWords) { if (tLower.includes(w)) matched++; }
+        score = matched / qWords.length;
+        if (tLower.includes(qLower)) score = Math.max(score, 1.0);
+      }
+      
+      // Penalize accessories
+      if (isAccessory(title)) score *= 0.05;
+      if (/\bfor\b/i.test(tLower) && !qLower.includes('for')) score *= 0.15;
+      
+      // Bonus for early position (Target's own relevance)
+      if (i < 3) score += 0.1;
+      
+      return { title: title.substring(0, 200), price, url, tcin, score, position: i };
+    });
+    
+    scored.sort((a, b) => b.score - a.score);
+    
+    for (const s of scored.slice(0, 5)) {
+      console.log(`[Target]   ${s.score.toFixed(3)} ${s.price ? '$'+s.price : 'no$'} "${s.title.substring(0,80)}" (#${s.position})`);
+    }
+    
+    const best = scored[0];
+    if (!best || best.score < 0.4) {
+      console.log(`[Target] No relevant product (best: ${best?.score?.toFixed(3) || 0})`);
+      return null;
+    }
+    
+    // If no price from search, fetch via PDP API
+    if (!best.price && best.tcin) {
+      try {
+        const pdpUrl = `https://redsky.target.com/redsky_aggregations/v1/web/pdp_client_v1?key=${REDSKY_KEY}&tcin=${best.tcin}&pricing_store_id=${STORE_ID}&has_pricing_store_id=true`;
+        const pdpResp = await fetch(pdpUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (pdpResp.ok) {
+          const pdpJson = await pdpResp.json();
+          const priceObj = pdpJson?.data?.product?.price;
+          best.price = priceObj?.current_retail || priceObj?.current_retail_min || priceObj?.reg_retail || null;
+          if (best.price) console.log(`[Target] PDP price: $${best.price}`);
+        }
+      } catch (e) {
+        console.log(`[Target] PDP fetch error: ${e.message}`);
+      }
+    }
+    
+    console.log(`[Target] Result: "${best.title.substring(0,60)}" $${best.price || 'none'}`);
+    return [best];
+    
+  } catch (e) {
+    console.log(`[Target] Error: ${e.message}`);
+    return null;
+  }
 }
 
 async function extractNewegg(page) {
@@ -492,21 +418,21 @@ async function extractBestBuy(page) {
 async function searchRetailer(retailer, query) {
   let context;
   try {
-    const br = await getBrowser();
-    context = await br.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 800 },
-      locale: 'en-US',
-    });
-    
-    const page = await context.newPage();
-    const searchUrl = retailer.searchUrl(query);
-    
     let rawResult;
+    
     if (retailer.name === 'Target') {
-      // Target uses network interception — handles its own navigation
-      rawResult = await retailer.parse(page, query);
+      // Target uses direct Redsky API — no browser needed
+      rawResult = await retailer.parse(null, query);
     } else {
+      const br = await getBrowser();
+      context = await br.newContext({
+        userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        viewport: { width: 1280, height: 800 },
+        locale: 'en-US',
+      });
+      
+      const page = await context.newPage();
+      const searchUrl = retailer.searchUrl(query);
       await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
       
       // Give JS time to render (some sites need more time)
@@ -514,8 +440,8 @@ async function searchRetailer(retailer, query) {
       await page.waitForTimeout(waitTime);
       
       rawResult = await retailer.parse(page);
+      await context.close();
     }
-    await context.close();
     
     // Handle extractors that return arrays (Target returns multiple candidates)
     let product = null;
@@ -557,7 +483,7 @@ async function searchRetailer(retailer, query) {
         retailerColor: retailer.color,
         productName: (product.title && product.title.length > 5) ? product.title : query,
         price,
-        url: product.url || searchUrl,
+        url: product.url || retailer.searchUrl(query),
         description: price ? `$${price} on ${retailer.name}` : `View on ${retailer.name}`,
         inStock: true,
         source: price ? 'live' : 'live-noPrice',

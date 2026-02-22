@@ -16,8 +16,8 @@ export default function SearchResults({ results }: SearchResultsProps) {
   const [expandedReview, setExpandedReview] = useState<string | null>(null);
   const [alertModalProduct, setAlertModalProduct] = useState<Product | null>(null);
 
-  // Exclude Target from best-deal calculations (price accuracy unreliable)
-  const EXCLUDED_FROM_BEST_DEAL = ['Target'];
+  // Retailers excluded from best-deal calculations (add names here if price data is unreliable)
+  const EXCLUDED_FROM_BEST_DEAL: string[] = [];
   const eligibleResults = results.filter(p => !EXCLUDED_FROM_BEST_DEAL.includes(p.retailer));
   const bestDealPool = eligibleResults.length > 0 ? eligibleResults : results;
 
