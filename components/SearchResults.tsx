@@ -16,13 +16,18 @@ export default function SearchResults({ results }: SearchResultsProps) {
   const [expandedReview, setExpandedReview] = useState<string | null>(null);
   const [alertModalProduct, setAlertModalProduct] = useState<Product | null>(null);
 
-  // Find lowest price
-  const lowestPriceProduct = results.reduce((prev, current) =>
+  // Exclude Target from best-deal calculations (price accuracy unreliable)
+  const EXCLUDED_FROM_BEST_DEAL = ['Target'];
+  const eligibleResults = results.filter(p => !EXCLUDED_FROM_BEST_DEAL.includes(p.retailer));
+  const bestDealPool = eligibleResults.length > 0 ? eligibleResults : results;
+
+  // Find lowest price (excluding unreliable retailers)
+  const lowestPriceProduct = bestDealPool.reduce((prev, current) =>
     prev.price < current.price ? prev : current
   );
 
   // Calculate savings
-  const highestPrice = Math.max(...results.map((p) => p.price));
+  const highestPrice = Math.max(...bestDealPool.map((p) => p.price));
   const savings = highestPrice - lowestPriceProduct.price;
 
   // Calculate predictions

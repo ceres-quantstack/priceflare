@@ -8,6 +8,9 @@ interface ComparisonTableProps {
 }
 
 export default function ComparisonTable({ results }: ComparisonTableProps) {
+  // Exclude Target from best-deal calculations (price accuracy unreliable)
+  const EXCLUDED_FROM_BEST_DEAL = ['Target'];
+
   // Sort results by price (lowest first)
   const sortedResults = [...results].sort((a, b) => {
     // Put products without prices at the end
@@ -20,14 +23,16 @@ export default function ComparisonTable({ results }: ComparisonTableProps) {
   const resultsWithPrice = sortedResults.filter((p) => p.price);
   const resultsWithoutPrice = sortedResults.filter((p) => !p.price);
 
-  // Calculate summary statistics
-  const lowestPrice = resultsWithPrice[0]?.price || 0;
-  const highestPrice = resultsWithPrice[resultsWithPrice.length - 1]?.price || 0;
+  // Calculate summary statistics (excluding unreliable retailers)
+  const eligibleResults = resultsWithPrice.filter(p => !EXCLUDED_FROM_BEST_DEAL.includes(p.retailer));
+  const bestDealPool = eligibleResults.length > 0 ? eligibleResults : resultsWithPrice;
+  const lowestPrice = bestDealPool[0]?.price || 0;
+  const highestPrice = bestDealPool[bestDealPool.length - 1]?.price || 0;
   const savings = highestPrice - lowestPrice;
   const savingsPercent = highestPrice > 0 ? ((savings / highestPrice) * 100).toFixed(0) : 0;
 
-  const lowestRetailer = resultsWithPrice[0]?.retailer || "N/A";
-  const highestRetailer = resultsWithPrice[resultsWithPrice.length - 1]?.retailer || "N/A";
+  const lowestRetailer = bestDealPool[0]?.retailer || "N/A";
+  const highestRetailer = bestDealPool[bestDealPool.length - 1]?.retailer || "N/A";
 
   return (
     <div className="glass rounded-3xl p-6 mb-8">
@@ -93,7 +98,7 @@ export default function ComparisonTable({ results }: ComparisonTableProps) {
           </thead>
           <tbody>
             {resultsWithPrice.map((product, index) => {
-              const isLowest = index === 0;
+              const isLowest = index === 0 && !EXCLUDED_FROM_BEST_DEAL.includes(product.retailer);
               const savingsVsHighest = highestPrice - product.price;
 
               return (
@@ -183,7 +188,7 @@ export default function ComparisonTable({ results }: ComparisonTableProps) {
       {/* Comparison Cards - Mobile */}
       <div className="md:hidden space-y-4">
         {resultsWithPrice.map((product, index) => {
-          const isLowest = index === 0;
+          const isLowest = index === 0 && !EXCLUDED_FROM_BEST_DEAL.includes(product.retailer);
           const savingsVsHighest = highestPrice - product.price;
 
           return (
