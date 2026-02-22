@@ -37,12 +37,9 @@ const RETAILERS = [
   { name: 'Amazon', emoji: '📦', color: '#FF9900',
     searchUrl: (q) => `https://www.amazon.com/s?k=${encodeURIComponent(q)}`,
     parse: ($page) => extractAmazon($page) },
-  { name: 'Walmart', emoji: '🏪', color: '#0071CE',
-    searchUrl: (q) => `https://www.walmart.com/search?q=${encodeURIComponent(q)}`,
-    parse: ($page) => extractWalmart($page) },
   { name: 'Target', emoji: '🎯', color: '#CC0000',
     searchUrl: (q) => `https://www.target.com/s?searchTerm=${encodeURIComponent(q)}`,
-    parse: ($page) => extractTarget($page) },
+    parse: ($page, q) => extractTarget($page, q) },
   { name: 'Newegg', emoji: '🥚', color: '#FF6600',
     searchUrl: (q) => `https://www.newegg.com/p/pl?d=${encodeURIComponent(q)}`,
     parse: ($page) => extractNewegg($page) },
@@ -132,73 +129,263 @@ async function extractAmazon(page) {
   return product;
 }
 
-async function extractWalmart(page) {
-  // Walmart shows CAPTCHA ("Robot or human?") to headless browsers
-  // Check if we got blocked
+async function extractWalmart(page, query) {
+  // Walmart frequently shows CAPTCHA — check immediately
   const blocked = await page.evaluate(() => {
     return document.title.includes('Robot') || document.body.innerText.includes('Robot or human');
   });
-  if (blocked) return null;
+  if (blocked) {
+    console.log('[Walmart] CAPTCHA detected — blocked');
+    return null;
+  }
   
-  await page.waitForSelector('[data-item-id], [data-testid="list-view"]', { timeout: 8000 }).catch(() => {});
+  // Wait for product cards to render
+  await page.waitForSelector('[data-automation-id="product-price"], a[href*="/ip/"]', { timeout: 8000 }).catch(() => {});
+  await page.waitForTimeout(2000);
   
   const product = await page.evaluate(() => {
-    const item = document.querySelector('[data-item-id]');
-    if (!item) return null;
-    const linkEl = item.querySelector('a[href*="/ip/"]');
-    const title = linkEl?.innerText?.trim() || item.querySelector('[data-automation-id="product-title"]')?.innerText?.trim();
-    // Find price
-    let price = null;
-    const spans = item.querySelectorAll('span');
-    for (const span of spans) {
-      const text = span.innerText?.trim();
-      if (text && /^\$[\d,]+\.?\d*$/.test(text)) {
-        price = parseFloat(text.replace(/[$,]/g, ''));
-        break;
+    // Strategy: Find product-price elements and walk up to find the product container
+    const priceEls = document.querySelectorAll('[data-automation-id="product-price"]');
+    
+    for (const priceEl of priceEls) {
+      const priceText = priceEl.innerText?.trim();
+      // Parse "current price $229.00" or just "$229.00"
+      const priceMatch = priceText.match(/current price\s*\$?([\d,.]+)/i) || 
+                          priceText.match(/Now\s*\$?([\d,.]+)/i) ||
+                          priceText.match(/\$([\d,.]+)/);
+      if (!priceMatch) continue;
+      const price = parseFloat(priceMatch[1].replace(/,/g, ''));
+      if (price < 1 || price > 5000) continue;
+      
+      // Walk up the DOM to find a container with a product link
+      let container = priceEl;
+      for (let d = 0; d < 20; d++) {
+        container = container.parentElement;
+        if (!container) break;
+        const link = container.querySelector('a[href*="/ip/"]');
+        if (link) {
+          // Get clean title (just the link text, not surrounding prices/badges)
+          let title = '';
+          // Try to find a dedicated title element
+          const titleEl = container.querySelector('[data-automation-id="product-title"]');
+          if (titleEl) {
+            title = titleEl.innerText?.trim();
+          } else {
+            // Use the link text but clean it
+            title = link.innerText?.trim()?.split('\n')[0];
+          }
+          
+          if (title && !title.startsWith('$')) {
+            // Remove price text from title if accidentally included
+            title = title.replace(/\$[\d,.]+/g, '').replace(/Was\s*/g, '').replace(/Now\s*/g, '').trim();
+          }
+          
+          let href = link.getAttribute('href');
+          if (href && !href.startsWith('http')) href = 'https://www.walmart.com' + href;
+          
+          if (title && title.length > 3) {
+            return { title: title.substring(0, 200), price, url: href };
+          }
+        }
       }
     }
-    const url = linkEl?.href;
-    return { title: title?.substring(0, 200), price, url };
+    
+    // Fallback: just find first /ip/ link with any nearby price
+    const links = document.querySelectorAll('a[href*="/ip/"]');
+    for (const link of links) {
+      const title = link.innerText?.trim();
+      if (!title || title.length < 5 || title.startsWith('$')) continue;
+      let href = link.getAttribute('href');
+      if (href && !href.startsWith('http')) href = 'https://www.walmart.com' + href;
+      // Return with no price — at least the link is correct
+      return { title: title.split('\n')[0].substring(0, 200), price: null, url: href };
+    }
+    
+    return null;
   });
   return product;
 }
 
-async function extractTarget(page) {
-  await page.waitForSelector('[data-test="product-card"], a[href*="/p/"]', { timeout: 8000 }).catch(() => {});
-  await page.waitForTimeout(2000);
+async function extractTarget(page, query) {
+  // Target fires multiple APIs on search:
+  // 1. product_summary (1st call) — real products but often NO prices
+  // 2. product_summary (2nd/3rd) — recommendations/accessories WITH prices
+  // 3. plp_search_v2 — accessories with prices
+  //
+  // Strategy: Collect ALL product data from all API responses,
+  // then pick the best match using relevance + accessory filtering.
   
-  // Extract ALL product cards, then we'll pick the most relevant one
-  const products = await page.evaluate(() => {
-    const results = [];
-    const cards = document.querySelectorAll('[data-test="product-card"], [data-test*="ProductCard"]');
+  return new Promise(async (resolve) => {
+    let resolved = false;
+    const allProducts = []; // {title, price, url, tcin, source}
+    let apiResponseCount = 0;
     
-    for (const card of cards) {
-      if (results.length >= 10) break;
-      const linkEl = card.querySelector('a[href*="/p/"]');
-      const title = linkEl?.innerText?.trim() || card.querySelector('[data-test="product-title"]')?.innerText?.trim();
+    // Accessory keywords — these indicate the product is FOR the queried item, not the item itself
+    const ACCESSORY_WORDS = ['case', 'cover', 'strap', 'sleeve', 'holder', 'stand', 'mount',
+      'charger', 'cable', 'adapter', 'screen protector', 'skin', 'pouch', 'dock', 'cradle',
+      'replacement tip', 'ear tip', 'ear hook', 'clip', 'lanyard', 'keychain',
+      'kit', 'accessory', 'accessories', 'protector', 'film', 'cleaning', 'silicone tip',
+      'protection plan', 'warranty', 'applecare'];
+    
+    function isAccessory(title) {
+      const lower = title.toLowerCase();
+      // If query itself contains an accessory word, don't filter it
+      const queryLower = query.toLowerCase();
+      for (const word of ACCESSORY_WORDS) {
+        if (lower.includes(word) && !queryLower.includes(word)) return true;
+      }
+      return false;
+    }
+    
+    function extractProductsFromSummary(json, source) {
+      const summaries = json?.data?.product_summaries || [];
+      for (const p of summaries) {
+        const title = p?.item?.product_description?.title || '';
+        const price = p?.price?.current_retail || p?.price?.reg_retail || null;
+        const tcin = p?.tcin || p?.item?.tcin || '';
+        const url = p?.item?.enrichment?.buy_url || 
+                    (tcin ? `https://www.target.com/p/-/A-${tcin}` : null);
+        if (title) {
+          allProducts.push({ title: title.substring(0, 200), price, url, tcin, source });
+        }
+      }
+    }
+    
+    function extractProductsFromSearch(json, source) {
+      const products = json?.data?.search?.products || [];
+      for (const p of products) {
+        const title = p?.item?.product_description?.title || p?.title || '';
+        const price = p?.price?.current_retail || p?.price?.reg_retail || null;
+        const tcin = p?.item?.tcin || p?.tcin || '';
+        const url = p?.item?.enrichment?.buy_url || 
+                    (tcin ? `https://www.target.com/p/-/A-${tcin}` : null);
+        if (title) {
+          allProducts.push({ title: title.substring(0, 200), price, url, tcin, source });
+        }
+      }
+    }
+    
+    page.on('response', async (response) => {
+      if (resolved) return;
+      const url = response.url();
       
-      let price = null;
-      const spans = card.querySelectorAll('span');
-      for (const el of spans) {
-        const text = el.innerText?.trim();
-        if (text && /^\$[\d,]+\.?\d*$/.test(text)) {
-          price = parseFloat(text.replace(/[$,]/g, ''));
-          break;
+      if (url.includes('product_summary') || url.includes('plp_search_v2')) {
+        try {
+          const text = await response.text();
+          const json = JSON.parse(text);
+          apiResponseCount++;
+          
+          if (url.includes('product_summary')) {
+            extractProductsFromSummary(json, `summary-${apiResponseCount}`);
+          } else {
+            extractProductsFromSearch(json, `search-${apiResponseCount}`);
+          }
+        } catch {}
+      }
+    });
+    
+    // Navigate
+    await page.goto(`https://www.target.com/s?searchTerm=${encodeURIComponent(query)}`, {
+      waitUntil: 'domcontentloaded', timeout: 15000
+    }).catch(() => {});
+    
+    // Wait for API responses to come in
+    await page.waitForTimeout(8000);
+    
+    if (!resolved) {
+      resolved = true;
+      
+      if (allProducts.length === 0) {
+        console.log('[Target] No products found from any API');
+        resolve(null);
+        return;
+      }
+      
+      console.log(`[Target] Collected ${allProducts.length} products from ${apiResponseCount} API calls`);
+      
+      // Score and rank all products
+      const scored = allProducts.map(p => {
+        let score = relevanceScore(p.title, query);
+        
+        // Penalize accessories heavily
+        if (isAccessory(p.title)) score *= 0.1;
+        
+        // Bonus: title starts with query words (e.g. "Apple AirPods Pro" for "airpods pro")
+        // This helps the actual product beat accessories that mention it
+        const titleWords = p.title.toLowerCase().split(/\s+/);
+        const queryWords = query.toLowerCase().split(/\s+/);
+        const startsWithQuery = queryWords.every((qw, i) => 
+          titleWords.some((tw, ti) => tw.includes(qw) && ti < queryWords.length + 2));
+        if (startsWithQuery && score >= 0.5) score += 0.2;
+        
+        // Small bonus for having a price (but not enough to beat relevance)
+        if (p.price && p.price > 1) score += 0.02;
+        
+        return { ...p, score };
+      });
+      
+      // Sort by score descending
+      scored.sort((a, b) => b.score - a.score);
+      
+      // Log top candidates
+      for (const s of scored.slice(0, 5)) {
+        console.log(`[Target]   ${s.score.toFixed(2)} ${s.price ? '$'+s.price : 'no$'} "${s.title.substring(0,80)}" (${s.source})`);
+      }
+      
+      const best = scored[0];
+      if (!best || best.score < 0.1) {
+        resolve(null);
+        return;
+      }
+      
+      // If best match has no price, try to find price from another product with same TCIN
+      if (!best.price && best.tcin) {
+        const withPrice = scored.find(p => p.tcin === best.tcin && p.price);
+        if (withPrice) best.price = withPrice.price;
+      }
+      
+      // If still no price, try fetching the product page directly
+      if (!best.price && best.url) {
+        try {
+          console.log(`[Target] No price for best match, fetching product page: ${best.url}`);
+          await page.goto(best.url, { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
+          await page.waitForTimeout(3000);
+          
+          const pdpPrice = await page.evaluate(() => {
+            // Try multiple price selectors on the PDP
+            const selectors = [
+              '[data-test="product-price"]',
+              '[data-test="product-price-sale"]',
+              'span[class*="CurrentPrice"]',
+              'span[data-test="product-price"]',
+            ];
+            for (const sel of selectors) {
+              const el = document.querySelector(sel);
+              if (el) {
+                const match = el.innerText?.match(/\$([\d,]+\.?\d*)/);
+                if (match) return parseFloat(match[1].replace(/,/g, ''));
+              }
+            }
+            // Generic: find first $ amount on page that looks like a product price
+            const allText = document.body.innerText;
+            const prices = [...allText.matchAll(/\$([\d,]+\.\d{2})/g)].map(m => parseFloat(m[1].replace(/,/g, '')));
+            // Filter reasonable prices
+            const reasonable = prices.filter(p => p > 5 && p < 5000);
+            return reasonable.length > 0 ? reasonable[0] : null;
+          });
+          
+          if (pdpPrice) {
+            console.log(`[Target] Got price from PDP: $${pdpPrice}`);
+            best.price = pdpPrice;
+          }
+        } catch (e) {
+          console.log(`[Target] PDP price fetch failed: ${e.message}`);
         }
       }
       
-      let url = linkEl?.getAttribute('href');
-      if (url && !url.startsWith('http')) url = 'https://www.target.com' + url;
-      
-      if (title && price) {
-        results.push({ title: title.substring(0, 200), price, url });
-      }
+      resolve([best]);
     }
-    return results;
   });
-  
-  // Return all candidates — the caller will pick the most relevant
-  return products;
 }
 
 async function extractNewegg(page) {
@@ -303,15 +490,21 @@ async function searchRetailer(retailer, query) {
     });
     
     const page = await context.newPage();
-    const url = retailer.searchUrl(query);
+    const searchUrl = retailer.searchUrl(query);
     
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
-    
-    // Give JS time to render (some sites need more time)
-    const waitTime = ['Walmart', 'eBay', 'Best Buy'].includes(retailer.name) ? 4000 : 2000;
-    await page.waitForTimeout(waitTime);
-    
-    let rawResult = await retailer.parse(page);
+    let rawResult;
+    if (retailer.name === 'Target') {
+      // Target uses network interception — handles its own navigation
+      rawResult = await retailer.parse(page, query);
+    } else {
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      
+      // Give JS time to render (some sites need more time)
+      const waitTime = ['eBay', 'Best Buy'].includes(retailer.name) ? 4000 : 2000;
+      await page.waitForTimeout(waitTime);
+      
+      rawResult = await retailer.parse(page);
+    }
     await context.close();
     
     // Handle extractors that return arrays (Target returns multiple candidates)
@@ -354,7 +547,7 @@ async function searchRetailer(retailer, query) {
         retailerColor: retailer.color,
         productName: (product.title && product.title.length > 5) ? product.title : query,
         price,
-        url: product.url || url,
+        url: product.url || searchUrl,
         description: price ? `$${price} on ${retailer.name}` : `View on ${retailer.name}`,
         inStock: true,
         source: price ? 'live' : 'live-noPrice',
