@@ -129,82 +129,7 @@ async function extractAmazon(page) {
   return product;
 }
 
-async function extractWalmart(page, query) {
-  // Walmart frequently shows CAPTCHA — check immediately
-  const blocked = await page.evaluate(() => {
-    return document.title.includes('Robot') || document.body.innerText.includes('Robot or human');
-  });
-  if (blocked) {
-    console.log('[Walmart] CAPTCHA detected — blocked');
-    return null;
-  }
-  
-  // Wait for product cards to render
-  await page.waitForSelector('[data-automation-id="product-price"], a[href*="/ip/"]', { timeout: 8000 }).catch(() => {});
-  await page.waitForTimeout(2000);
-  
-  const product = await page.evaluate(() => {
-    // Strategy: Find product-price elements and walk up to find the product container
-    const priceEls = document.querySelectorAll('[data-automation-id="product-price"]');
-    
-    for (const priceEl of priceEls) {
-      const priceText = priceEl.innerText?.trim();
-      // Parse "current price $229.00" or just "$229.00"
-      const priceMatch = priceText.match(/current price\s*\$?([\d,.]+)/i) || 
-                          priceText.match(/Now\s*\$?([\d,.]+)/i) ||
-                          priceText.match(/\$([\d,.]+)/);
-      if (!priceMatch) continue;
-      const price = parseFloat(priceMatch[1].replace(/,/g, ''));
-      if (price < 1 || price > 5000) continue;
-      
-      // Walk up the DOM to find a container with a product link
-      let container = priceEl;
-      for (let d = 0; d < 20; d++) {
-        container = container.parentElement;
-        if (!container) break;
-        const link = container.querySelector('a[href*="/ip/"]');
-        if (link) {
-          // Get clean title (just the link text, not surrounding prices/badges)
-          let title = '';
-          // Try to find a dedicated title element
-          const titleEl = container.querySelector('[data-automation-id="product-title"]');
-          if (titleEl) {
-            title = titleEl.innerText?.trim();
-          } else {
-            // Use the link text but clean it
-            title = link.innerText?.trim()?.split('\n')[0];
-          }
-          
-          if (title && !title.startsWith('$')) {
-            // Remove price text from title if accidentally included
-            title = title.replace(/\$[\d,.]+/g, '').replace(/Was\s*/g, '').replace(/Now\s*/g, '').trim();
-          }
-          
-          let href = link.getAttribute('href');
-          if (href && !href.startsWith('http')) href = 'https://www.walmart.com' + href;
-          
-          if (title && title.length > 3) {
-            return { title: title.substring(0, 200), price, url: href };
-          }
-        }
-      }
-    }
-    
-    // Fallback: just find first /ip/ link with any nearby price
-    const links = document.querySelectorAll('a[href*="/ip/"]');
-    for (const link of links) {
-      const title = link.innerText?.trim();
-      if (!title || title.length < 5 || title.startsWith('$')) continue;
-      let href = link.getAttribute('href');
-      if (href && !href.startsWith('http')) href = 'https://www.walmart.com' + href;
-      // Return with no price — at least the link is correct
-      return { title: title.split('\n')[0].substring(0, 200), price: null, url: href };
-    }
-    
-    return null;
-  });
-  return product;
-}
+// Walmart removed — consistently CAPTCHA'd even with stealth plugin
 
 async function extractTarget(page, query) {
   // Direct Redsky API — no browser needed, fast and accurate.
@@ -291,7 +216,7 @@ async function extractTarget(page, query) {
     }
     
     const best = scored[0];
-    if (!best || best.score < 0.4) {
+    if (!best || best.score < 0.5) {
       console.log(`[Target] No relevant product (best: ${best?.score?.toFixed(3) || 0})`);
       return null;
     }
